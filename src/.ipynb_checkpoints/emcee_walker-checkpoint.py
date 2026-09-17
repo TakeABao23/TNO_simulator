@@ -1,14 +1,13 @@
 import os
-from params import *
-import population_class
+import population_class as population_class
 from population_class import *
 from population_plotter import *
-from TNO_sim_lib import *
+import TNO_sim_lib as TNO_sim_lib
+from TNO_sim_lib import log_prior, moon_params_to_array, moon_params_from_array, draw_moon_params
 import logging
 import emcee
 from schwimmbad import MPIPool
-import runprops
-import param_versions
+import runprops as runprops
 
 # Set to a runs/<objectname>/<run_file> directory (relative to this
 # notebook's location, e.g. "runs/Pluto_test/000") to load run config from
@@ -22,6 +21,41 @@ import param_versions
 RUN_DIR = os.environ.get("TNO_RUN_DIR", "runs/Pluto_test/000")
 
 run_config = runprops.load_runprops(RUN_DIR) if RUN_DIR else None
+
+# Used only when emcee_walker()/run_once() are called with no real runprops
+# (the "hardcoded defaults" path) -- there's no more params.py to fall back
+# on, so the moon/wide/orbital parameter definitions have to live somewhere
+# even without a runprops.txt. Mirrors runs/Pluto_test/000/runprops.txt.
+FALLBACK_RUNPROPS = {
+    "moon_param_names": ["fb", "ka", "ae", "ke", "ai", "ki", "mdm", "sdm"],
+    "moon_fb": "rng.uniform(0.0, 1.0)",
+    "moon_ka": "rng.uniform(0.1, 5.0)",
+    "moon_ae": "rng.uniform(0.5, 5.0)",
+    "moon_ke": "rng.uniform(0.5, 5.0)",
+    "moon_ai": "rng.uniform(1.9, 2.1)",
+    "moon_ki": "rng.uniform(4.9, 5.1)",
+    "moon_mdm": "rng.uniform(0.0, 4.0)",
+    "moon_sdm": "rng.uniform(0.1, 2.0)",
+    "wide_fb": "0.0",
+    "wide_ka": "np.nan",
+    "wide_ae": "np.nan",
+    "wide_ke": "np.nan",
+    "wide_ai": "np.nan",
+    "wide_ki": "np.nan",
+    "wide_mdm": "np.nan",
+    "wide_sdm": "np.nan",
+    "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
+    "a": "lambda: rng.power(params['ka']) * 10000",
+    "e": "lambda: rng.beta(params['ae'], params['ke'])",
+    "i": "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
+    "w": "lambda: rng.uniform(0.0, 360.0)",
+    "Om": "lambda: rng.uniform(0.0, 360.0)",
+    "mu": "lambda: rng.uniform(0.0, 360.0)",
+    "param_bounds": {
+        "fb": [0.0, 1.0], "ka": [0.1, None], "ae": [0.5, None], "ke": [0.5, None],
+        "ai": [0.5, None], "ki": [0.5, None], "mdm": [None, None], "sdm": [0.1, None],
+    },
+}
 
 def det_prob(sep, dm):
     if sep < 0.1:
@@ -71,7 +105,7 @@ def emcee_walker(runprops=None):
         burn_count     = runprops.get("nburnin", 500)
         numpy_seed     = runprops.get("numpy_seed")
         ref_pop_name   = runprops.get("reference_pop", "Pluto")
-        params_version = runprops.get("params_version")
+        param_config   = runprops
     else:
         nwalkers       = 10
         ndim           = 8 # number of params
@@ -79,21 +113,12 @@ def emcee_walker(runprops=None):
         burn_count     = 50 # iterations to do and toss before starting the real run
         numpy_seed     = None
         ref_pop_name   = "Pluto"
-        params_version = None
+        param_config   = FALLBACK_RUNPROPS
 
     with MPIPool() as pool:
         if not pool.is_master():
             pool.wait()
             return None
-
-        if params_version:
-            # Locks this run to a frozen Parameters/<version>.py snapshot instead
-            # of whatever params.py currently contains. population_class.py
-            # resolves OrbitParamDist/InitWideParams through its own module
-            # globals (from its own `from params import *`), so both namespaces
-            # need patching for the swap to actually reach Population().
-            param_versions.apply_params_version(params_version, [globals(), vars(population_class)])
-            print(f"Using parameter model '{params_version}' from Parameters/")
 
         det_prob_fn = globals().get(runprops.get("det_prob_function"), det_prob) if runprops is not None else det_prob
 
@@ -105,8 +130,9 @@ def emcee_walker(runprops=None):
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
 
-        p0 = np.array([InitMoonParams().to_array() for _ in range(nwalkers)])
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, pool=pool, args=[reference_pop, det_prob_fn])
+        p0 = np.array([moon_params_to_array(draw_moon_params(param_config)) for _ in range(nwalkers)])
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, pool=pool,
+                                         args=[reference_pop, det_prob_fn, param_config])
         print(f"Burn-in: {burn_count} steps x {nwalkers} walkers")
         state = sampler.run_mcmc(p0, burn_count, progress=True)
         sampler.reset()
@@ -118,14 +144,14 @@ def emcee_walker(runprops=None):
         sampler.reference_pop = reference_pop
         sampler.det_prob_fn = det_prob_fn
         # walker 0's actual pre-burn-in starting position, i.e. what
-        # params.py (or the swapped-in params_version) drew before emcee moved
-        # any walkers -- distinct from the first post-burn-in posterior sample.
-        sampler.initial_params = moon_params_from_array(p0[0])
+        # param_config drew before emcee moved any walkers -- distinct from
+        # the first post-burn-in posterior sample.
+        sampler.initial_params = moon_params_from_array(p0[0], param_config)
         # TODO: multimoon has functions to graph emcee results
         # TODO: verbose mode and plotting mode
         return sampler
 
-def get_log_likelihood(theta, reference_pop, det_prob, verbose = False):
+def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = False):
     """
     UNTESTED
     Log-likelihood of the observed binary population given one simulated realization.
@@ -142,12 +168,15 @@ def get_log_likelihood(theta, reference_pop, det_prob, verbose = False):
     Parameters
     ----------
     theta : array-like, shape (ndim,)
-        Flat moonlike parameter vector for one emcee walker, in MOON_PARAM_NAMES
-        order (fb, ka, ae, ke, ai, ki, mdm, sdm).
+        Flat moonlike parameter vector for one emcee walker, in
+        param_config['moon_param_names'] order (fb, ka, ae, ke, ai, ki, mdm, sdm).
     reference_pop : Population
         Real observed binaries. reference_pop.popu must have columns: sep, dm.
     det_prob : callable
         Detection probability function passed through to Population().
+    param_config : dict
+        runprops (or FALLBACK_RUNPROPS) -- supplies the moon/wide/orbital
+        parameter draw expressions Population() needs.
 
     Returns
     -------
@@ -155,8 +184,8 @@ def get_log_likelihood(theta, reference_pop, det_prob, verbose = False):
         Total log-likelihood. Returns -inf if the simulation produces fewer
         than 2 detected binaries (KDE undefined) while observations exist.
     """
-    init_params = moon_params_from_array(theta)
-    simulated_pop = Population(reference_pop.popu, init_params, det_prob)
+    init_params = moon_params_from_array(theta, param_config)
+    simulated_pop = Population(reference_pop.popu, init_params, det_prob, runprops=param_config)
     det = simulated_pop.popu[simulated_pop.popu['detected']].dropna(subset=['sep', 'dm'])
     ref = reference_pop.popu.dropna(subset=['sep', 'dm'])
     n_det = len(det)
@@ -176,10 +205,10 @@ def get_log_likelihood(theta, reference_pop, det_prob, verbose = False):
     '''
     return ll_count
 
-def log_posterior(theta, reference_pop, det_prob, verbose = False):
+def log_posterior(theta, reference_pop, det_prob, param_config, verbose = False):
     """
     log_prior(theta) + get_log_likelihood(theta, ...); this is what emcee
-    should sample, so that walker proposals outside PARAM_BOUNDS (e.g. a
+    should sample, so that walker proposals outside param_bounds (e.g. a
     negative ka/ae/ke/ai/ki, which crashes rng.power/rng.beta) are rejected
     via -inf instead of reaching the likelihood function at all.
 
@@ -187,17 +216,18 @@ def log_posterior(theta, reference_pop, det_prob, verbose = False):
     emcee blob so run_emcee_walker.py can write it out alongside each
     posterior sample without recomputing it.
     """
-    lp = log_prior(theta)
+    lp = log_prior(theta, param_config)
     if not np.isfinite(lp):
         return -np.inf, np.nan
-    ll_count = get_log_likelihood(theta, reference_pop, det_prob, verbose)
+    ll_count = get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose)
     return lp + ll_count, ll_count
 
 def run_once():
     reference_pop = Pluto()
-    moon_params = InitMoonParams()
-    ll_count = get_log_likelihood(moon_params.to_array(), reference_pop, det_prob, True)
-    simulated_pop = Population(reference_pop.popu, moon_params.moon_params, det_prob)
+    moon_params = draw_moon_params(FALLBACK_RUNPROPS)
+    theta = moon_params_to_array(moon_params)
+    ll_count = get_log_likelihood(theta, reference_pop, det_prob, FALLBACK_RUNPROPS, True)
+    simulated_pop = Population(reference_pop.popu, moon_params, det_prob, runprops=FALLBACK_RUNPROPS)
 
 if __name__ == '__main__':
     if run_config is not None:

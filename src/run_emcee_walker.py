@@ -16,7 +16,7 @@ import os
 import commentjson
 import numpy as np
 
-import TNO_simulator.src.plot_posterior_result as plot_posterior_result
+import plot_posterior_result
 
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -64,7 +64,7 @@ def run(run_dir):
     original_cwd = os.getcwd()
     os.chdir(TNO_SIM_DIR)
     try:
-        import TNO_simulator.src.emcee_walker as emcee_walker
+        import emcee_walker
 
         run_config = emcee_walker.run_config
         if run_config is not None:
