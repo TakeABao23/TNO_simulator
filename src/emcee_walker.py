@@ -2,7 +2,7 @@ import os
 import population_class
 from population_class import *
 from population_plotter import *
-import TNO_sim_lib as TNO_sim_lib
+import TNO_sim_lib
 from TNO_sim_lib import log_prior, moon_params_to_array, moon_params_from_array, draw_moon_params
 import logging
 import emcee
