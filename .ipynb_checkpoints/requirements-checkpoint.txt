@@ -1,0 +1,15 @@
+numpy
+pandas
+scipy
+matplotlib
+spiceypy
+emcee
+commentjson
+gitpython
+
+# jupyter/ipykernel/nbclient/nbformat are used by run_emcee_walker.py to
+# run emcee_walker.ipynb non-interactively
+jupyter
+ipykernel
+nbclient
+nbformat

@@ -1,0 +1,20 @@
+numpy
+pandas
+scipy
+matplotlib
+spiceypy
+emcee
+commentjson
+gitpython
+tqdm  # progress bar for emcee's run_mcmc(progress=True)
+
+# MPI-parallelize emcee_walker() across ranks, same as multimoon's mm_run_multi.py
+mpi4py
+schwimmbad
+
+# jupyter/ipykernel/nbclient/nbformat are used by run_emcee_walker.py to
+# run emcee_walker.ipynb non-interactively
+jupyter
+ipykernel
+nbclient
+nbformat

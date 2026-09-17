@@ -1,0 +1,27 @@
+{
+    # Initialization properties
+    "first_run": true,
+    "date": "autogenerate",
+    "time": "autogenerate",
+    "user": "autogenerate",
+    "TNO_simulator commit hash": "autogenerate",
+    "RunGoal" : "DEBUG run shortly to test plotting and saving",
+    "verbose" : true,
+
+    # Run properties/parameters
+    "objectname" : "Pluto_test",
+    "run_file": "debug",
+    "params_version": "params_1.0",	# which Parameters/params_<version>.py file supplies InitMoonParams/OrbitParamDist
+    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population; otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "det_prob_function": "det_prob",	# name of the detection probability function to use from params.py
+
+    "nwalkers" : 16,			# number of walkers in emcee ensemble
+    "ndim" : 8,				# length of MOON_PARAM_NAMES; number of free population-level parameters
+    "nburnin" : 5,			# length of burn in
+    "nsteps" : 10,			# number of steps for sampling after burn in
+    "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
+
+    # These values are used by the code to manage runs and should not be changed by hand.
+    "chain_file": null,			# set by runprops.py when resuming from results/.../chain.h5
+    "startfromfile" : false
+}

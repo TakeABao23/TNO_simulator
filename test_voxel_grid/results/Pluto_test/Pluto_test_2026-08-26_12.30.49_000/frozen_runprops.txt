@@ -1,0 +1,94 @@
+{
+    "first_run": true,
+    "date": "autogenerate",
+    "time": "autogenerate",
+    "user": "autogenerate",
+    "TNO_simulator commit hash": "autogenerate",
+    "RunGoal": "Test putting the moon/wide/orbital parameter model directly into runprops.txt (as numpy structured-array draws) instead of a separate params.py module",
+    "verbose": true,
+    "objectname": "Pluto_test",
+    "run_file": "000",
+    "reference_pop": "Pluto",
+    "det_prob_function": "det_prob",
+    "nwalkers": 100,
+    "ndim": 8,
+    "nburnin": 5,
+    "nsteps": 50,
+    "numpy_seed": null,
+    "moon_param_names": [
+        "fb",
+        "ka",
+        "ae",
+        "ke",
+        "ai",
+        "ki",
+        "mdm",
+        "sdm"
+    ],
+    "moon_fb": "0.6150440074386903",
+    "moon_ka": "2.9981341643417765",
+    "moon_ae": "2.5789846882931813",
+    "moon_ke": "0.9342498658393872",
+    "moon_ai": "1.9874922959506967",
+    "moon_ki": "5.005954707986447",
+    "moon_mdm": "3.267909604614857",
+    "moon_sdm": "1.4543899370918012",
+    "param_bounds": {
+        "fb": [
+            0.0,
+            1.0
+        ],
+        "ka": [
+            0.1,
+            null
+        ],
+        "ae": [
+            0.5,
+            null
+        ],
+        "ke": [
+            0.5,
+            null
+        ],
+        "ai": [
+            0.5,
+            null
+        ],
+        "ki": [
+            0.5,
+            null
+        ],
+        "mdm": [
+            null,
+            null
+        ],
+        "sdm": [
+            0.1,
+            null
+        ]
+    },
+    "wide_fb": "0.0",
+    "wide_ka": "np.nan",
+    "wide_ae": "np.nan",
+    "wide_ke": "np.nan",
+    "wide_ai": "np.nan",
+    "wide_ki": "np.nan",
+    "wide_mdm": "np.nan",
+    "wide_sdm": "np.nan",
+    "orb_param_names": [
+        "a",
+        "e",
+        "i",
+        "w",
+        "Om",
+        "mu"
+    ],
+    "a": "lambda: rng.power(params['ka']) * 10000",
+    "e": "lambda: rng.beta(params['ae'], params['ke'])",
+    "i": "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
+    "w": "lambda: rng.uniform(0.0, 360.0)",
+    "Om": "lambda: rng.uniform(0.0, 360.0)",
+    "mu": "lambda: rng.uniform(0.0, 360.0)",
+    "chain_file": null,
+    "startfromfile": false
+}
