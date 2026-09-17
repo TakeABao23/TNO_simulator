@@ -17,6 +17,7 @@ import commentjson
 import numpy as np
 
 import plot_posterior_result
+import runprops
 
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -46,6 +47,23 @@ def write_frozen_runprops(last_sample, param_names, results_folder):
 
 
 def run(run_dir):
+    """
+    Run emcee_walker.py against the runprops.txt in `run_dir`.
+
+    `run_dir` is a runs/<objectname>/<run_file> directory, relative to this
+    script's own directory. Sets TNO_RUN_DIR so emcee_walker.py resolves its
+    RUN_DIR, then imports and runs it: emcee_walker.emcee_walker(run_config)
+    if a run_config was found, otherwise emcee_walker.run_once().
+
+    On completion, writes posteriors.csv (one row per (step, walker) of the
+    chain, plus a leading step/ll_count column) and a first-vs-last posterior
+    comparison plot into the run's results_folder, and -- if the run reports
+    param_names -- a frozen_runprops.txt snapshotting the last posterior
+    sample as fixed parameter values.
+
+    Returns the results_folder path, or None if run_config didn't resolve
+    one.
+    """
     run_dir_abs = os.path.join(TNO_SIM_DIR, run_dir)
     if not os.path.exists(os.path.join(run_dir_abs, "runprops.txt")):
         raise FileNotFoundError(
@@ -65,24 +83,23 @@ def run(run_dir):
     os.chdir(TNO_SIM_DIR)
     try:
         import emcee_walker
-
-        run_config = emcee_walker.run_config
+        run_config = runprops.load_runprops(run_dir) if run_dir else None
         if run_config is not None:
             print("run config going!")
             sampler = emcee_walker.emcee_walker(run_config)
+            results_folder = run_config.get("results_folder")
         else:
             print("no run config, running once")
             emcee_walker.run_once()
             sampler = None
+            results_folder = None
     finally:
         os.chdir(original_cwd)
-
-    results_folder = run_config.get("results_folder") if run_config else None
 
     if not results_folder:
         print("Run complete, but no runprops results_folder was reported "
               "(RUN_DIR may not have resolved to a valid run).")
-        return results_folder
+        return results_folder # ends run here
 
     print(f"Run complete. Results in {results_folder}")
 
