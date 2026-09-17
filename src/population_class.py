@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import spiceypy as spice
 from scipy.stats import gaussian_kde, poisson
-from params import *
+from TNO_simulator.src.params import *
 
 class Population():
     def __init__(self, reference_pop, init_params=None, detection_prob = None):

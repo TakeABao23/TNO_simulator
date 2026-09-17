@@ -14,11 +14,11 @@ import os
 
 import commentjson
 
-import param_versions
-import population_class
-from params import det_prob
-from population_class import Population, Pluto
-from population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
+import TNO_simulator.src.param_versions as param_versions
+import TNO_simulator.src.population_class as population_class
+from TNO_simulator.src.params import det_prob
+from TNO_simulator.src.population_class import Population, Pluto
+from TNO_simulator.src.population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
 
 
 def load_first_and_last_sample(posteriors_path):

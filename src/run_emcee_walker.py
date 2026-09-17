@@ -16,7 +16,7 @@ import re
 
 import numpy as np
 
-import plot_posterior_result
+import TNO_simulator.src.plot_posterior_result as plot_posterior_result
 
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 MODULE_DOCSTRING_PATTERN = re.compile(r'^"""[\s\S]*?"""\n')
@@ -80,7 +80,7 @@ def run(run_dir):
     original_cwd = os.getcwd()
     os.chdir(TNO_SIM_DIR)
     try:
-        import emcee_walker
+        import TNO_simulator.src.emcee_walker as emcee_walker
 
         run_config = emcee_walker.run_config
         if run_config is not None:

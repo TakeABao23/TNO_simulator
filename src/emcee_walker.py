@@ -1,14 +1,14 @@
 import os
-from params import *
-import population_class
-from population_class import *
-from population_plotter import *
-from TNO_sim_lib import *
+from TNO_simulator.src.params import *
+import TNO_simulator.src.population_class as population_class
+from TNO_simulator.src.population_class import *
+from TNO_simulator.src.population_plotter import *
+from TNO_simulator.src.TNO_sim_lib import *
 import logging
 import emcee
 from schwimmbad import MPIPool
-import runprops
-import param_versions
+import TNO_simulator.src.runprops as runprops
+import TNO_simulator.src.param_versions as param_versions
 
 # Set to a runs/<objectname>/<run_file> directory (relative to this
 # notebook's location, e.g. "runs/Pluto_test/000") to load run config from
