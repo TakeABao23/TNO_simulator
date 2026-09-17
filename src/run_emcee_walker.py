@@ -12,52 +12,36 @@ script's own directory (same convention as emcee_walker.py's RUN_DIR).
 """
 import argparse
 import os
-import re
 
+import commentjson
 import numpy as np
 
-import plot_posterior_result
+import TNO_simulator.src.plot_posterior_result as plot_posterior_result
 
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
-MODULE_DOCSTRING_PATTERN = re.compile(r'^"""[\s\S]*?"""\n')
 
 
-def write_frozen_params(last_sample, param_names, results_folder, params_version=None):
+def write_frozen_runprops(last_sample, param_names, results_folder):
     """
-    Write a params.py into `results_folder` that mirrors the format of
-    TNO_simulator/params.py (or the Parameters/<params_version>.py it was
-    swapped in from), but with InitMoonParams frozen to `last_sample`
-    (e.g. the last row of posteriors.csv) instead of drawing a random
-    walker start -- a reproducible snapshot of the run's final estimate.
+    Write a frozen_runprops.txt into `results_folder` that mirrors the run's
+    own runprops.txt (already copied there by runprops.load_runprops), but
+    with each moon_<name> draw expression replaced by its fixed value from
+    `last_sample` (e.g. the last row of posteriors.csv) instead of drawing a
+    random walker start -- a reproducible snapshot of the run's final
+    estimate. Replaces the old params.py-freezing approach now that the
+    parameter draw expressions live in runprops.txt itself, not a separate
+    params.py module.
     """
-    if params_version:
-        source_path = os.path.join(TNO_SIM_DIR, "Parameters", params_version + ".py")
-    else:
-        source_path = os.path.join(TNO_SIM_DIR, "params.py")
-
+    source_path = os.path.join(results_folder, "runprops.txt")
     with open(source_path) as f:
-        source = f.read()
+        frozen = commentjson.load(f)
 
     for name, value in zip(param_names, last_sample):
-        draw_pattern = re.compile(rf'^(\s*self\.{re.escape(name)}\s*=\s*)rng\..*$', re.MULTILINE)
-        source, count = draw_pattern.subn(rf'\g<1>{float(value)!r}', source, count=1)
-        if count == 0:
-            raise RuntimeError(
-                f"Could not find an InitMoonParams draw line for '{name}' in {source_path}"
-            )
+        frozen[f"moon_{name}"] = repr(float(value))
 
-    header = (
-        '"""\n'
-        'Frozen parameter snapshot -- InitMoonParams below is fixed to the\n'
-        'last emcee posterior sample from this run, instead of drawing a\n'
-        f'random walker start. Generated from {os.path.relpath(source_path, TNO_SIM_DIR)}.\n'
-        '"""\n'
-    )
-    source = MODULE_DOCSTRING_PATTERN.sub(header, source, count=1)
-
-    output_path = os.path.join(results_folder, "params.py")
+    output_path = os.path.join(results_folder, "frozen_runprops.txt")
     with open(output_path, "w") as f:
-        f.write(source)
+        commentjson.dump(frozen, f, indent=4)
     return output_path
 
 
@@ -80,7 +64,7 @@ def run(run_dir):
     original_cwd = os.getcwd()
     os.chdir(TNO_SIM_DIR)
     try:
-        import emcee_walker
+        import TNO_simulator.src.emcee_walker as emcee_walker
 
         run_config = emcee_walker.run_config
         if run_config is not None:
@@ -103,10 +87,10 @@ def run(run_dir):
     print(f"Run complete. Results in {results_folder}")
 
     if sampler is not None:
-        # MOON_PARAM_NAMES is read after emcee_walker() runs, since a
-        # runprops "params_version" can swap it out via param_versions.py
-        # partway through that call.
-        param_names = getattr(emcee_walker, "MOON_PARAM_NAMES", None)
+        # moon_param_names now lives in runprops itself (run_config), not a
+        # module-level constant -- there's no more params.py/param_versions.py
+        # to have swapped it out from under us.
+        param_names = run_config.get("moon_param_names")
         chain = sampler.get_chain()  # (nsteps, nwalkers, ndim)
         nsteps, nwalkers, _ = chain.shape
         samples = chain.reshape(-1, chain.shape[-1])  # matches get_chain(flat=True)
@@ -126,23 +110,22 @@ def run(run_dir):
         np.savetxt(posteriors_path, full_data, delimiter=",", header=header, comments="", fmt=fmt)
         print(f"Posterior samples written to {posteriors_path}")
 
-        # Compare the run's actual params.py starting point against its
-        # last posterior sample, rather than only ever looking at the last
-        # one (as write_frozen_params below does).
+        # Compare the run's actual starting point (param_config's draw
+        # expressions) against its last posterior sample, rather than only
+        # ever looking at the last one (as write_frozen_runprops below does).
         plot_posterior_result.plot_first_last_comparison(
-            posteriors_path, sampler.reference_pop, sampler.det_prob_fn,
+            posteriors_path, sampler.reference_pop, run_config, sampler.det_prob_fn,
             first_params=sampler.initial_params, results_folder=results_folder
         )
 
         if param_names:
             try:
-                frozen_params_path = write_frozen_params(
-                    samples[-1], param_names, results_folder,
-                    run_config.get("params_version")
+                frozen_runprops_path = write_frozen_runprops(
+                    samples[-1], param_names, results_folder
                 )
-                print(f"Frozen params.py written to {frozen_params_path}")
+                print(f"Frozen runprops written to {frozen_runprops_path}")
             except (OSError, RuntimeError) as exc:
-                print(f"Could not write a frozen params.py: {exc}")
+                print(f"Could not write a frozen runprops: {exc}")
 
     return results_folder
 

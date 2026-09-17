@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import spiceypy as spice
 from scipy.stats import gaussian_kde, poisson
-import TNO_sim_lib
+import TNO_simulator.src.TNO_sim_lib as TNO_sim_lib
 
 class Population():
     def __init__(self, reference_pop, init_params=None, detection_prob = None, runprops=None):
@@ -58,7 +58,7 @@ class Population():
             binary_check = np.random.rand()
             if binary_check > (self.ref_binary_frac):
                 binary_type = 'single'
-                results.append({'Name': name, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'H': row['H'], 'params': np.nan})
+                results.append({'Name': name, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'params': np.nan})
                 continue
             elif binary_check > self.wide['fb']:
                 binary_type = 'moonlike'
@@ -79,7 +79,7 @@ class Population():
                 sep, pa = self.compute_separation(xyz_earth, orbital_params)
                 dm = abs(np.random.normal(0.0, self.wide['sdm']))
 
-            results.append({'Name': name, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'H': row['H'], 'params': orbital_params})
+            results.append({'Name': name, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
         return pd.DataFrame(results)
 
     def compute_separation(self, xyz_earth, orbital_params):
@@ -250,7 +250,7 @@ class Pluto(Population):
             binary_check = np.random.rand()
             if binary_check > (self.ref_binary_frac):
                 binary_type = 'single'
-                results.append({'Name': name, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'H': H, 'params': np.nan})
+                results.append({'Name': name, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'params': np.nan})
                 continue
             elif binary_check > self.wide:
                 binary_type = 'moonlike'

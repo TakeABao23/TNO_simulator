@@ -14,11 +14,19 @@ import os
 
 import commentjson
 
-import param_versions
-import population_class
-from params import det_prob
-from population_class import Population, Pluto
-from population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
+from TNO_simulator.src.population_class import Population, Pluto
+from TNO_simulator.src.population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
+
+
+def det_prob(sep, dm):
+    if sep < 0.1:
+        return False
+    elif sep < 0.5:
+        if dm > 12.5 * sep - 1.25:
+            return False
+    elif dm > 5:
+        return False
+    return True
 
 
 def load_first_and_last_sample(posteriors_path):
@@ -41,22 +49,17 @@ def load_first_and_last_sample(posteriors_path):
     return to_dict(first_row), to_dict(last_row)
 
 
-def load_params_version(posteriors_path):
+def load_run_runprops(posteriors_path):
     """
-    If a runprops.txt sits alongside posteriors.csv (as run_emcee_walker.py
-    leaves in a run's results folder) and names a params_version, swap in
-    that Parameters/<version>.py snapshot so the Population we build here
-    matches what the run actually used.
+    Load the runprops.txt that sits alongside posteriors.csv (as
+    run_emcee_walker.py leaves in a run's results folder) -- needed so the
+    Population objects built here draw orbital elements using the same
+    moon_param_names/orb_param_names/draw-expression definitions the run
+    actually used.
     """
     runprops_path = os.path.join(os.path.dirname(posteriors_path), "runprops.txt")
-    if not os.path.exists(runprops_path):
-        return
     with open(runprops_path) as f:
-        runprops = commentjson.load(f)
-    params_version = runprops.get("params_version")
-    if params_version:
-        param_versions.apply_params_version(params_version, [globals(), vars(population_class)])
-        print(f"Using parameter model '{params_version}' from Parameters/")
+        return commentjson.load(f)
 
 
 def save_plots(dm_fig, pa_fig, results_folder):
@@ -73,18 +76,22 @@ def save_plots(dm_fig, pa_fig, results_folder):
     return dm_path, pa_path
 
 
-def plot_first_last_comparison(posteriors_path, reference_pop, det_prob_fn=det_prob, first_params=None,
-                                results_folder=None):
+def plot_first_last_comparison(posteriors_path, reference_pop, run_runprops, det_prob_fn=det_prob,
+                                first_params=None, results_folder=None):
     """
     Build simulated Populations from a "start" and "end" parameter set and
     plot them next to each other (and against `reference_pop`) so the start
     and end of the chain are easy to compare.
 
+    `run_runprops` supplies the moon_param_names/orb_param_names/draw
+    expressions Population() needs to draw orbital elements -- the same
+    runprops the run itself used (see load_run_runprops).
+
     `first_params`, if given (e.g. run_emcee_walker.py's
-    sampler.initial_params, the actual pre-burn-in draw from params.py),
-    is used as the "start" set instead of posteriors_path's first row --
-    the first row is only the first post-burn-in *posterior* sample, not
-    the params.py values the run actually started from.
+    sampler.initial_params, the actual pre-burn-in draw from runprops), is
+    used as the "start" set instead of posteriors_path's first row -- the
+    first row is only the first post-burn-in *posterior* sample, not the
+    values the run actually started from.
 
     `results_folder`, if given, saves the two comparison plots there via
     save_plots() (e.g. the same results folder posteriors.csv came from).
@@ -98,8 +105,8 @@ def plot_first_last_comparison(posteriors_path, reference_pop, det_prob_fn=det_p
         first_params = csv_first_params
         first_label = "First posterior"
 
-    first_pop = Population(reference_pop.popu, first_params, det_prob_fn)
-    last_pop = Population(reference_pop.popu, last_params, det_prob_fn)
+    first_pop = Population(reference_pop.popu, first_params, det_prob_fn, runprops=run_runprops)
+    last_pop = Population(reference_pop.popu, last_params, det_prob_fn, runprops=run_runprops)
 
     named_pops = [(first_label, first_pop), ("Last posterior", last_pop)]
     dm_fig = plot_sep_vs_dm_comparison(named_pops, reference_pop.popu)
@@ -113,12 +120,12 @@ def plot_first_last_comparison(posteriors_path, reference_pop, det_prob_fn=det_p
 
 
 def main(posteriors_path):
-    load_params_version(posteriors_path)
+    run_runprops = load_run_runprops(posteriors_path)
     reference_pop = Pluto()
     print(reference_pop)
 
     results_folder = os.path.dirname(posteriors_path)
-    first_pop, last_pop = plot_first_last_comparison(posteriors_path, reference_pop,
+    first_pop, last_pop = plot_first_last_comparison(posteriors_path, reference_pop, run_runprops,
                                                        results_folder=results_folder)
 
     print("First posterior sample:")
