@@ -129,3 +129,14 @@ FALLBACK_RUNPROPS = {
         "ai": [0.5, None], "ki": [0.5, None], "mdm": [None, None], "sdm": [0.1, None],
     },
 }
+
+
+def fallback_det_prob(sep, dm):
+    if sep < 0.1:
+        return False
+    elif sep < 0.5:
+        if dm > 12.5 * sep - 1.25:
+            return False
+    elif dm > 5:
+        return False
+    return True

@@ -8,7 +8,7 @@ import logging
 import emcee
 from schwimmbad import MPIPool
 import runprops
-from runprops import FALLBACK_RUNPROPS
+from runprops import FALLBACK_RUNPROPS, fallback_det_prob
 
 # Set to a runs/<objectname>/<run_file> directory (relative to this
 # notebook's location, e.g. "runs/Pluto_test/000") to load run config from
@@ -19,19 +19,6 @@ from runprops import FALLBACK_RUNPROPS
 # only works if this module is import()ed normally (one real module object
 # in sys.modules), so callers can no longer patch RUN_DIR by exec()ing a
 # hand-edited copy of this file into a separate namespace.
-
-
-
-
-def det_prob(sep, dm):
-    if sep < 0.1:
-        return False
-    elif sep < 0.5:
-        if dm > 12.5 * sep - 1.25:
-            return False
-    elif dm > 5:
-        return False
-    return True
 
 
 class ObservedPopulation:
@@ -46,11 +33,11 @@ class ObservedPopulation:
     def __str__(self):
         return f'Observed population\n Total: {len(self.popu)}\n'
 
-def emcee_walker(runprops=None):
+def emcee_walker(run_config=None):
     """
     Run the emcee ensemble sampler for the moonlike-binary population fit.
 
-    If `runprops` (e.g. the `runprops` module's `.runprops` dict) is given,
+    If `run_config` (e.g. the `runprops` module's `.runprops` dict) is given,
     run parameters come from it; otherwise falls back to the hardcoded
     defaults.
 
@@ -64,15 +51,17 @@ def emcee_walker(runprops=None):
     back to a single-rank/serial pool) as it does under
     `mpiexec -n <numprocs> python emcee_walker.py`.
     """
-    if runprops is not None:
-        nwalkers       = runprops.get("nwalkers", 100)
-        ndim           = runprops.get("ndim", 8)
-        step_count     = runprops.get("nsteps", 1000)
-        burn_count     = runprops.get("nburnin", 500)
-        numpy_seed     = runprops.get("numpy_seed")
-        ref_pop_name   = runprops.get("reference_pop", "Pluto")
-        param_config   = runprops
+    # load config file, if any
+    if run_config is not None:
+        nwalkers       = run_config.get("nwalkers", 100)
+        ndim           = run_config.get("ndim", 8)
+        step_count     = run_config.get("nsteps", 1000)
+        burn_count     = run_config.get("nburnin", 500)
+        numpy_seed     = run_config.get("numpy_seed")
+        ref_pop_name   = run_config.get("reference_pop", "Pluto")
+        param_config   = run_config
     else:
+        print("No run_config detected. Falling back on defaults.")
         nwalkers       = 10
         ndim           = 8 # number of params
         step_count     = 100 # how many times we run the whole simulation
@@ -81,17 +70,26 @@ def emcee_walker(runprops=None):
         ref_pop_name   = "Pluto"
         param_config   = FALLBACK_RUNPROPS
 
+    # create MPIPool and its contents
     with MPIPool() as pool:
         if not pool.is_master():
             pool.wait()
             return None
 
-        det_prob_fn = globals().get(runprops.get("det_prob_function"), det_prob) if runprops is not None else det_prob
+        if run_config is not None:
+            det_prob_name = run_config.get("det_prob_function")
+            det_prob_fn = globals().get(det_prob_name, fallback_det_prob)
+            if det_prob_fn is fallback_det_prob:
+                print(f"No det_prob function found in run_config "
+                      f"(det_prob_function={det_prob_name!r}); using default fallback_det_prob.")
+        else:
+            det_prob_fn = fallback_det_prob
 
         if numpy_seed is not None:
             np.random.seed(numpy_seed)
 
         if ref_pop_name == "Pluto":
+            print("Using synthetic Pluto population as reference")
             reference_pop = Pluto()
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
@@ -117,6 +115,7 @@ def emcee_walker(runprops=None):
         # TODO: verbose mode and plotting mode
         return sampler
 
+    
 def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = False):
     """
     UNTESTED
@@ -192,8 +191,8 @@ def run_once():
     reference_pop = Pluto()
     moon_params = draw_moon_params(FALLBACK_RUNPROPS)
     theta = moon_params_to_array(moon_params)
-    ll_count = get_log_likelihood(theta, reference_pop, det_prob, FALLBACK_RUNPROPS, True)
-    simulated_pop = Population(reference_pop.popu, moon_params, det_prob, runprops=FALLBACK_RUNPROPS)
+    ll_count = get_log_likelihood(theta, reference_pop, fallback_det_prob, FALLBACK_RUNPROPS, True)
+    simulated_pop = Population(reference_pop.popu, moon_params, fallback_det_prob, runprops=FALLBACK_RUNPROPS)
 
 if __name__ == '__main__':
     RUN_DIR = os.environ.get("TNO_RUN_DIR", "runs/Pluto_test/000")

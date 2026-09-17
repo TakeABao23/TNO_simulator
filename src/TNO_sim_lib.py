@@ -56,6 +56,7 @@ def draw_wide_params(runprops):
     ai, ki, mdm, sdm) since wide binaries share the same parameter shape.
     """
     names = runprops["moon_param_names"]
+    print("moon and wide the same right now")
     exprs = [runprops[f"wide_{name}"] for name in names]
     return _draw_record(names, exprs)
 
