@@ -1,5 +1,5 @@
 import os
-import population_class as population_class
+import population_class
 from population_class import *
 from population_plotter import *
 import TNO_sim_lib as TNO_sim_lib
@@ -7,7 +7,7 @@ from TNO_sim_lib import log_prior, moon_params_to_array, moon_params_from_array,
 import logging
 import emcee
 from schwimmbad import MPIPool
-import runprops as runprops
+import runprops
 
 # Set to a runs/<objectname>/<run_file> directory (relative to this
 # notebook's location, e.g. "runs/Pluto_test/000") to load run config from
