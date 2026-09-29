@@ -20,9 +20,12 @@ Two ways to get a chain in:
     post-hoc plotting (e.g. from plot_posterior_result.py). Only ever
     post-burn-in -- posteriors.csv doesn't record burn-in steps.
 
-plot_trace(), plot_corner(), plot_likelihood(), and summarize_chain() all
-take the resulting chain array (plus a per-step/per-walker metric array
-for most of them), so the same code runs either way.
+plot_trace(), plot_corner(), plot_likelihood() (and its
+plot_likelihood_no_outliers() companion, which drops extreme-low-metric
+samples for a linear-scale look at the well-behaved bulk of the chain),
+and summarize_chain() all take the resulting chain array (plus a
+per-step/per-walker metric array for most of them), so the same code
+runs either way.
 """
 import os
 
@@ -232,41 +235,26 @@ def plot_corner(chain, param_names, burnin=0, truths=None,
     return fig
 
 
-def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
-                     results_folder=None, filename="likelihood.png"):
+def _plot_likelihood_grid(flat_chain, flat_metric, walker_idx, param_names, metric_label,
+                           yscale, title, results_folder, filename, label):
     """
-    For each parameter, scatter its flattened samples against `metric`
-    (e.g. the ll_chain from load_chain_from_csv, or log_prob_chain from
-    sampler_to_chain), colored by walker index, with marginal histograms
-    of the parameter and of `metric` -- same panel layout as multimoon's
+    Shared rendering for plot_likelihood()/plot_likelihood_no_outliers():
+    for each parameter, scatter its (already flattened) samples against
+    `flat_metric`, colored by `walker_idx`, with marginal histograms of
+    the parameter and of `flat_metric` -- same panel layout as multimoon's
     mm_plots_multi.plots() likelihood plots. Useful for spotting which
     parameters drive the fit and whether any walkers are stuck in a
     low-likelihood mode.
 
-    `metric`'s axis (shared by the scatter and its marginal histogram)
-    uses a symlog scale -- log-likelihoods are typically <= 0 and can
-    span many orders of magnitude in a single chain (e.g. early,
-    barely-burned-in walkers at -1e5 alongside near-converged ones at
-    -1e1), which a linear axis crushes into an unreadable sliver near the
-    top; a plain 'log' scale can't be used since it's undefined for the
-    negative/zero values log-likelihoods actually take. symlog handles
-    the sign and stays linear in a small region around 0 (`linthresh`)
-    where log-scaling a value that close to zero wouldn't mean much
-    anyway.
-
-    Parameters
-    ----------
-    chain : ndarray, shape (nsteps, nwalkers, ndim)
-    metric : ndarray, shape (nsteps, nwalkers)
-    param_names : list of str, length ndim
-    results_folder : str, optional
-        If given, saves the figure there as `filename`.
+    Takes pre-flattened, already-filtered arrays (rather than a
+    (nsteps, nwalkers, ndim) chain) so plot_likelihood_no_outliers() can
+    drop rows -- a chain-shaped array can't represent that once different
+    parameters would need different numbers of samples dropped, but here
+    every array still has one entry per surviving sample, in lockstep.
 
     Returns the Figure.
     """
-    nsteps, nwalkers, ndim = chain.shape
-    flat_metric = metric.flatten()
-    walker_idx = np.tile(np.arange(nwalkers), nsteps)
+    ndim = flat_chain.shape[1]
     finite = np.isfinite(flat_metric)
 
     ylim = (np.nanpercentile(flat_metric[finite], 1),
@@ -279,7 +267,7 @@ def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
                            width_ratios=[3, 1] * ncols)
 
     for idx, name in enumerate(param_names):
-        flat_param = chain[:, :, idx].flatten()
+        flat_param = flat_chain[:, idx]
         row, col = divmod(idx, ncols)
 
         ax_hist = fig.add_subplot(gs[2 * row, 2 * col])
@@ -295,10 +283,10 @@ def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
                             s=6, alpha=0.3, edgecolors="none", rasterized=True)
         ax_scatter.set_xlabel(name)
         ax_scatter.set_ylabel(metric_label)
-        # symlog before set_ylim: set_yscale() can reset axis limits, and
-        # ax_llhist shares this y-axis (sharey=ax_scatter below), so its
+        # yscale before set_ylim: set_yscale() can reset axis limits, and
+        # ax_llhist shares this y-axis (sharey=ax_scatter above), so its
         # scale follows from here too -- no separate call needed there.
-        ax_scatter.set_yscale("symlog")
+        ax_scatter.set_yscale(yscale)
         ax_scatter.set_ylim(*ylim)
 
         ax_llhist.hist(flat_metric[finite], bins=40, orientation="horizontal",
@@ -307,11 +295,101 @@ def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
         plt.setp(ax_llhist.get_yticklabels(), visible=False)
         ax_llhist.set_ylim(*ylim)
 
-    fig.suptitle(f"Parameters vs. {metric_label}")
+    fig.suptitle(title)
 
-    _save(fig, results_folder, filename, "Likelihood plot")
+    _save(fig, results_folder, filename, label)
     plt.show()
     return fig
+
+
+def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
+                     results_folder=None, filename="likelihood.png"):
+    """
+    Parameter-vs-`metric` panels over every sample in `chain` (see
+    _plot_likelihood_grid()).
+
+    `metric`'s axis (shared by the scatter and its marginal histogram)
+    uses a symlog scale -- log-likelihoods are typically <= 0 and can
+    span many orders of magnitude in a single chain (e.g. early,
+    barely-burned-in walkers at -1e5 alongside near-converged ones at
+    -1e1), which a linear axis crushes into an unreadable sliver near the
+    top; a plain 'log' scale can't be used since it's undefined for the
+    negative/zero values log-likelihoods actually take. symlog handles
+    the sign and stays linear in a small region around 0 (`linthresh`)
+    where log-scaling a value that close to zero wouldn't mean much
+    anyway. See also plot_likelihood_no_outliers(), which drops the
+    extreme-low-metric samples driving that huge range in the first
+    place, for a plain linear-scale look at the well-behaved bulk.
+
+    Parameters
+    ----------
+    chain : ndarray, shape (nsteps, nwalkers, ndim)
+    metric : ndarray, shape (nsteps, nwalkers)
+    param_names : list of str, length ndim
+    results_folder : str, optional
+        If given, saves the figure there as `filename`.
+
+    Returns the Figure.
+    """
+    nsteps, nwalkers, ndim = chain.shape
+    flat_chain = chain.reshape(-1, ndim)
+    flat_metric = metric.flatten()
+    walker_idx = np.tile(np.arange(nwalkers), nsteps)
+    return _plot_likelihood_grid(flat_chain, flat_metric, walker_idx, param_names, metric_label,
+                                  yscale="symlog", title=f"Parameters vs. {metric_label}",
+                                  results_folder=results_folder, filename=filename,
+                                  label="Likelihood plot")
+
+
+def plot_likelihood_no_outliers(chain, metric, param_names, metric_label="log-likelihood",
+                                 outlier_k=1.5, results_folder=None,
+                                 filename="likelihood_no_outliers.png"):
+    """
+    Same panels as plot_likelihood(), but first drops samples whose
+    `metric` is a low outlier by Tukey's IQR rule (the standard boxplot
+    "outlier" definition): metric < Q1 - outlier_k * IQR, where Q1/Q3 are
+    metric's 25th/75th percentiles and IQR = Q3 - Q1. Only a *lower*
+    fence is applied -- log-likelihoods have no meaningful upper outliers
+    to trim (values near 0 are exactly the well-fit samples this plot
+    exists to show in detail), only a long tail of still-bad,
+    barely-burned-in ones dragging the axis range out.
+
+    Complementary to plot_likelihood(), not a replacement: this trades
+    away visibility into how bad the worst walkers got, for a plain
+    linear-scale view of the well-behaved bulk of the chain in more
+    detail than that plot's symlog-compressed one allows. Prints how many
+    samples were dropped.
+
+    Parameters
+    ----------
+    chain : ndarray, shape (nsteps, nwalkers, ndim)
+    metric : ndarray, shape (nsteps, nwalkers)
+    param_names : list of str, length ndim
+    outlier_k : float, optional
+        Tukey's fence multiplier (default 1.5, the usual boxplot
+        convention; 3.0 is the common "extreme outlier" alternative).
+    results_folder : str, optional
+        If given, saves the figure there as `filename`.
+
+    Returns the Figure.
+    """
+    nsteps, nwalkers, ndim = chain.shape
+    flat_chain = chain.reshape(-1, ndim)
+    flat_metric = metric.flatten()
+    walker_idx = np.tile(np.arange(nwalkers), nsteps)
+
+    finite = np.isfinite(flat_metric)
+    q1, q3 = np.nanpercentile(flat_metric[finite], [25, 75])
+    lower_fence = q1 - outlier_k * (q3 - q1)
+    keep = finite & (flat_metric >= lower_fence)
+    print(f"plot_likelihood_no_outliers: dropped {np.count_nonzero(~keep)}/{flat_metric.size} "
+          f"outlier samples ({metric_label} < {lower_fence:.3g})")
+
+    return _plot_likelihood_grid(flat_chain[keep], flat_metric[keep], walker_idx[keep], param_names,
+                                  metric_label, yscale="linear",
+                                  title=f"Parameters vs. {metric_label} (outliers removed)",
+                                  results_folder=results_folder, filename=filename,
+                                  label="Likelihood plot (outliers removed)")
 
 
 def summarize_chain(chain, param_names, metric=None, burnin=0,
@@ -373,13 +451,14 @@ def summarize_chain(chain, param_names, metric=None, burnin=0,
 
 
 def plot_diagnostics(chain, metric, param_names, metric_label="log-likelihood",
-                      burnin=0, truths=None, results_folder=None):
+                      burnin=0, truths=None, outlier_k=1.5, results_folder=None):
     """
-    Convenience wrapper: makes the trace, corner, and likelihood plots plus
+    Convenience wrapper: makes the trace, corner, and likelihood plots
+    (both the symlog full-range one and the outliers-removed one) plus
     the percentile/best-fit summary table, together from one chain, saving
     each to `results_folder` if given.
 
-    Returns (trace_fig, corner_fig, likelihood_fig, summary_df).
+    Returns (trace_fig, corner_fig, likelihood_fig, likelihood_no_outliers_fig, summary_df).
     """
     trace_fig = plot_trace(chain, param_names, metric=metric, metric_label=metric_label,
                             results_folder=results_folder)
@@ -387,9 +466,13 @@ def plot_diagnostics(chain, metric, param_names, metric_label="log-likelihood",
                               results_folder=results_folder)
     likelihood_fig = plot_likelihood(chain, metric, param_names, metric_label=metric_label,
                                       results_folder=results_folder)
+    likelihood_no_outliers_fig = plot_likelihood_no_outliers(
+        chain, metric, param_names, metric_label=metric_label, outlier_k=outlier_k,
+        results_folder=results_folder
+    )
     summary_df = summarize_chain(chain, param_names, metric=metric, burnin=burnin,
                                   results_folder=results_folder)
-    return trace_fig, corner_fig, likelihood_fig, summary_df
+    return trace_fig, corner_fig, likelihood_fig, likelihood_no_outliers_fig, summary_df
 
 
 def plot_diagnostics_from_sampler(sampler, param_names, results_folder=None):
@@ -399,16 +482,18 @@ def plot_diagnostics_from_sampler(sampler, param_names, results_folder=None):
     plus plot_trace_full() -- the burn-in-included trace plot, only
     available with a live sampler.
 
-    Returns (trace_fig, corner_fig, likelihood_fig, summary_df, full_trace_fig).
+    Returns (trace_fig, corner_fig, likelihood_fig,
+    likelihood_no_outliers_fig, summary_df, full_trace_fig).
     """
     chain, log_prob_chain = sampler_to_chain(sampler)
-    trace_fig, corner_fig, likelihood_fig, summary_df = plot_diagnostics(
+    trace_fig, corner_fig, likelihood_fig, likelihood_no_outliers_fig, summary_df = plot_diagnostics(
         chain, log_prob_chain, param_names, metric_label="log-posterior",
         results_folder=results_folder
     )
     full_trace_fig = plot_trace_full(sampler, param_names, metric_label="log-posterior",
                                       results_folder=results_folder)
-    return trace_fig, corner_fig, likelihood_fig, summary_df, full_trace_fig
+    return (trace_fig, corner_fig, likelihood_fig, likelihood_no_outliers_fig, summary_df,
+            full_trace_fig)
 
 
 def plot_diagnostics_from_csv(posteriors_path, results_folder=None):
