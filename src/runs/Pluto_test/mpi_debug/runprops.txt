@@ -13,7 +13,8 @@
     "run_file": "mpi_debug",
     "params_version": "params_1_0",	# which Parameters/params_<version>.py file supplies InitMoonParams/OrbitParamDist
     "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population; otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
-    "det_prob_function": "det_prob",	# name of the detection probability function to use from params.py
+    "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
+    "det_prob": "lambda sep, dm: not (sep < 0.1 or (sep < 0.5 and dm > 12.5 * sep - 1.25) or (sep >= 0.5 and dm > 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
 
     "nwalkers" : 16,			# number of walkers in emcee ensemble; emcee requires nwalkers >= 2*ndim (16 here), so this is the smallest usable value, not something to shrink further
     "ndim" : 8,				# length of MOON_PARAM_NAMES; number of free population-level parameters
