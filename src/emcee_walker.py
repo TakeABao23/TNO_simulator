@@ -5,6 +5,7 @@ from population_plotter import *
 import TNO_sim_lib
 from TNO_sim_lib import (log_prior, moon_params_to_array, moon_params_from_array, draw_moon_params,
                           save_walker_positions, load_walker_positions, load_det_prob)
+import voxel_grid
 import logging
 import emcee
 from schwimmbad import MPIPool
@@ -167,17 +168,15 @@ def emcee_walker(run_config=None):
     
 def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = False):
     """
-    UNTESTED
-    Log-likelihood of the observed binary population given one simulated realization.
-
-    Combines two terms:
-      1. Poisson likelihood on binary count: P(N_obs | N_det_sim)
-      2. KDE likelihood on the (sep, dm) distribution of detected binaries:
-         sum_i log f_sim(sep_i, dm_i) for each observed binary i
-
-    The KDE is built from the simulated detected population and evaluated at
-    each observed binary's (sep, dm). This is an unbinned likelihood, so no
-    binning choices are needed.
+    Log-likelihood of the observed binary population given one simulated
+    realization, via voxel_grid.voxel_grid_log_likelihood(): bins detected
+    binaries into a fixed 4D grid of (H, delta-magnitude, separation,
+    position-angle) and sums each voxel's Poisson log-probability of the
+    observed count given the simulated count as its rate. Summing every
+    voxel's simulated count already recovers the same total-detected-count
+    constraint the old single aggregate P(N_obs | N_det_sim) term gave, on
+    top of now also scoring the simulated population's *shape* across all
+    four dimensions against the real one -- see voxel_grid.py.
 
     Parameters
     ----------
@@ -185,7 +184,8 @@ def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = F
         Flat moonlike parameter vector for one emcee walker, in
         param_config['moon_param_names'] order (fb, ka, ae, ke, ai, ki, mdm, sdm).
     reference_pop : Population
-        Real observed binaries. reference_pop.popu must have columns: sep, dm.
+        Real observed binaries. reference_pop.popu must have columns:
+        H, dm, sep, pa.
     det_prob : callable
         Detection probability function passed through to Population().
     param_config : dict
@@ -195,18 +195,13 @@ def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = F
     Returns
     -------
     float
-        Total log-likelihood. Returns -inf if the simulation produces fewer
-        than 2 detected binaries (KDE undefined) while observations exist.
+        Total log-likelihood (see voxel_grid.voxel_grid_log_likelihood).
     """
     init_params = moon_params_from_array(theta, param_config)
     simulated_pop = Population(reference_pop.popu, init_params, det_prob, runprops=param_config)
-    det = simulated_pop.popu[simulated_pop.popu['detected']].dropna(subset=['sep', 'dm'])
-    ref = reference_pop.popu.dropna(subset=['sep', 'dm'])
-    n_det = len(det)
-    n_ref = len(ref)
+    det = simulated_pop.popu[simulated_pop.popu['detected']]
 
-    # Poisson likelihood on the binary count
-    ll_count = poisson.logpmf(n_ref, mu=max(n_det, 1e-300))
+    ll_count = voxel_grid.voxel_grid_log_likelihood(det, reference_pop.popu)
     simulated_pop.ll_count = ll_count
     '''
     if verbose is True:

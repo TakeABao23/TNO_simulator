@@ -45,20 +45,27 @@ class Population():
         Returns
         -------
         pd.DataFrame
-            Simulated population. Columns: Name, binary_type, sep, pa, dm, orbital_params.
-            sep/pa/dm/orbital_params are NaN for single (non-binary) objects.
+            Simulated population. Columns: Name, H, binary_type, sep, pa, dm,
+            orbital_params. H is the primary's own absolute magnitude,
+            carried straight through from `reference_pop` (not drawn/
+            simulated); sep/pa/dm/orbital_params are NaN for single
+            (non-binary) objects. H is still reported for singles, since
+            it's an observed property of the primary regardless of
+            binary_type, unlike sep/pa/dm which describe a companion that
+            doesn't exist for a single.
         """
 
         results = []
         for _, row in reference_pop.iterrows():
             name = row['Name']
+            H = row['H']
             xyz_earth  = (row['x'], row['y'], row['z'])
 
             # Check binary type
             binary_check = np.random.rand()
             if binary_check > (self.ref_binary_frac):
                 binary_type = 'single'
-                results.append({'Name': name, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'params': np.nan})
+                results.append({'Name': name, 'H': H, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'params': np.nan})
                 continue
             elif binary_check > self.wide['fb']:
                 binary_type = 'moonlike'
@@ -79,7 +86,7 @@ class Population():
                 sep, pa = self.compute_separation(xyz_earth, orbital_params)
                 dm = abs(np.random.normal(0.0, self.wide['sdm']))
 
-            results.append({'Name': name, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
+            results.append({'Name': name, 'H': H, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
         return pd.DataFrame(results)
 
     def compute_separation(self, xyz_earth, orbital_params):
