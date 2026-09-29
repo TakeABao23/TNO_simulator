@@ -243,6 +243,17 @@ def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
     parameters drive the fit and whether any walkers are stuck in a
     low-likelihood mode.
 
+    `metric`'s axis (shared by the scatter and its marginal histogram)
+    uses a symlog scale -- log-likelihoods are typically <= 0 and can
+    span many orders of magnitude in a single chain (e.g. early,
+    barely-burned-in walkers at -1e5 alongside near-converged ones at
+    -1e1), which a linear axis crushes into an unreadable sliver near the
+    top; a plain 'log' scale can't be used since it's undefined for the
+    negative/zero values log-likelihoods actually take. symlog handles
+    the sign and stays linear in a small region around 0 (`linthresh`)
+    where log-scaling a value that close to zero wouldn't mean much
+    anyway.
+
     Parameters
     ----------
     chain : ndarray, shape (nsteps, nwalkers, ndim)
@@ -284,6 +295,10 @@ def plot_likelihood(chain, metric, param_names, metric_label="log-likelihood",
                             s=6, alpha=0.3, edgecolors="none", rasterized=True)
         ax_scatter.set_xlabel(name)
         ax_scatter.set_ylabel(metric_label)
+        # symlog before set_ylim: set_yscale() can reset axis limits, and
+        # ax_llhist shares this y-axis (sharey=ax_scatter below), so its
+        # scale follows from here too -- no separate call needed there.
+        ax_scatter.set_yscale("symlog")
         ax_scatter.set_ylim(*ylim)
 
         ax_llhist.hist(flat_metric[finite], bins=40, orientation="horizontal",
