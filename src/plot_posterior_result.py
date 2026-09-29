@@ -2,9 +2,12 @@
 """
 Post-hoc plots for a run_emcee_walker.py results folder's posteriors.csv:
 chain diagnostics (trace, corner, and parameter-vs-likelihood plots, via
-chain_plotter.py) plus a first-vs-last posterior sample comparison -- each
-built into a simulated Population and plotted side by side against the
-Pluto reference population for an easy before/after look at the chain.
+chain_plotter.py) plus an end-of-burn-in-vs-last posterior sample
+comparison -- each built into a simulated Population and plotted side by
+side against the Pluto reference population, so the comparison shows what
+sampling itself achieved, without burn-in's own (usually much larger)
+movement dominating the picture the way comparing from the pre-burn-in
+starting draw would.
 
 Usage:
     python plot_posterior_result.py results/Pluto_test/Pluto_test_.../posteriors.csv
@@ -51,6 +54,32 @@ def load_first_and_last_sample(posteriors_path):
     return to_dict(first_row), to_dict(last_row)
 
 
+def load_burnin_end_sample(results_folder):
+    """
+    Load walker 0's row from results_folder/burnin_end.csv -- written by
+    emcee_walker.emcee_walker() right after burn-in, via
+    TNO_sim_lib.save_walker_positions() (see its docstring) -- as a dict
+    mapping parameter name to value.
+
+    Used by main() (the standalone CLI path, run after the fact against a
+    saved posteriors.csv, with no live sampler to pull
+    sampler.burnin_end_params from directly, unlike run_emcee_walker.py's
+    plot_and_write()).
+
+    Returns None if the file doesn't exist (e.g. a run from before this
+    feature existed) -- callers should fall back to posteriors.csv's own
+    first row (see plot_first_last_comparison's first_params parameter).
+    """
+    path = os.path.join(results_folder, "burnin_end.csv")
+    if not os.path.exists(path):
+        return None
+    with open(path, newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        first_row = next(reader)
+    return dict(zip(header, (float(v) for v in first_row)))
+
+
 def load_run_runprops(posteriors_path):
     """
     Load the runprops.txt that sits alongside posteriors.csv (as
@@ -82,18 +111,22 @@ def plot_first_last_comparison(posteriors_path, reference_pop, run_runprops, det
                                 first_params=None, results_folder=None):
     """
     Build simulated Populations from a "start" and "end" parameter set and
-    plot them next to each other (and against `reference_pop`) so the start
-    and end of the chain are easy to compare.
+    plot them next to each other (and against `reference_pop`) so what
+    sampling itself achieved is easy to see, without burn-in's own
+    (usually much larger) movement dominating the comparison the way
+    starting from the pre-burn-in draw would.
 
     `run_runprops` supplies the moon_param_names/orb_param_names/draw
     expressions Population() needs to draw orbital elements -- the same
     runprops the run itself used (see load_run_runprops).
 
     `first_params`, if given (e.g. run_emcee_walker.py's
-    sampler.initial_params, the actual pre-burn-in draw from runprops), is
-    used as the "start" set instead of posteriors_path's first row -- the
-    first row is only the first post-burn-in *posterior* sample, not the
-    values the run actually started from.
+    sampler.burnin_end_params, or plot_posterior_result.py's own
+    load_burnin_end_sample()) -- walker 0's position right at the end of
+    burn-in -- is used as the "start" set instead of posteriors_path's
+    first row. The first row is only the first post-burn-in *posterior*
+    sample (i.e. one MCMC step past end-of-burn-in), not what burn-in
+    itself actually left off at -- prefer `first_params` when available.
 
     `results_folder`, if given, saves the two comparison plots there via
     save_plots() (e.g. the same results folder posteriors.csv came from).
@@ -102,7 +135,7 @@ def plot_first_last_comparison(posteriors_path, reference_pop, run_runprops, det
     """
     csv_first_params, last_params = load_first_and_last_sample(posteriors_path)
     if first_params is not None:
-        first_label = "Initial params.py"
+        first_label = "End of burn-in"
     else:
         first_params = csv_first_params
         first_label = "First posterior"
@@ -128,10 +161,11 @@ def main(posteriors_path):
 
     results_folder = os.path.dirname(posteriors_path)
     chain_plotter.plot_diagnostics_from_csv(posteriors_path, results_folder=results_folder)
+    first_params = load_burnin_end_sample(results_folder)
     first_pop, last_pop = plot_first_last_comparison(posteriors_path, reference_pop, run_runprops,
-                                                       results_folder=results_folder)
+                                                       first_params=first_params, results_folder=results_folder)
 
-    print("First posterior sample:")
+    print("End of burn-in sample:" if first_params is not None else "First posterior sample:")
     print(first_pop)
     print("Last posterior sample:")
     print(last_pop)

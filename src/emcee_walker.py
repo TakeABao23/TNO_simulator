@@ -156,6 +156,13 @@ def emcee_walker(run_config=None):
         # fresh from param_config, or loaded from init_positions_file --
         # distinct from the first post-burn-in posterior sample.
         sampler.initial_params = moon_params_from_array(p0[0], param_config)
+        # walker 0's position right at the end of burn-in (same moment
+        # burnin_end.csv above snapshots for every walker) -- what
+        # plot_posterior_result.plot_first_last_comparison() now compares
+        # against the final posterior sample, instead of initial_params
+        # above (the pre-burn-in draw), so the comparison plots show what
+        # burn-in itself achieved rather than being dominated by it.
+        sampler.burnin_end_params = moon_params_from_array(state.coords[0], param_config)
         # How many leading steps of sampler.get_chain()/get_log_prob() are
         # burn-in -- callers pass this as discard= to get the post-burn-in
         # chain (what used to be the only chain left, back when this reset()

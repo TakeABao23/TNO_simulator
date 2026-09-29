@@ -82,12 +82,14 @@ def plot_and_write(sampler, run_config, results_folder):
     if param_names:
         chain_plotter.plot_diagnostics_from_sampler(sampler, param_names, results_folder=results_folder)
 
-    # Compare the run's actual starting point (param_config's draw
-    # expressions) against its last posterior sample, rather than only
-    # ever looking at the last one (as write_frozen_runprops below does).
+    # Compare where burn-in left off against the chain's last posterior
+    # sample, rather than only ever looking at the last one (as
+    # write_frozen_runprops below does) -- shows what sampling itself
+    # achieved, without burn-in's own (usually much larger) movement
+    # dominating the comparison.
     plot_posterior_result.plot_first_last_comparison(
         posteriors_path, sampler.reference_pop, run_config, sampler.det_prob_fn,
-        first_params=sampler.initial_params, results_folder=results_folder
+        first_params=sampler.burnin_end_params, results_folder=results_folder
     )
 
     if param_names:
