@@ -90,14 +90,20 @@ def draw_orbit_params(moon_params, runprops):
     eval'd with `params` bound to `moon_params` (the walker's current
     moon-level hyperparameters, e.g. so `a`'s expression can reference
     params['ka']), then immediately called to draw one sample.
+
+    Returns a plain dict (name -> value), not a numpy structured scalar --
+    unlike moon_params/wide_params (drawn once per Population, then
+    round-tripped through moon_params_to_array/moon_params_from_array as
+    emcee's flat theta, where the structured-array dtype earns its keep),
+    this is drawn once per binary and immediately unpacked by its only
+    caller (population_class.py's `[orb[name] for name in orb_names]`) --
+    plain dict field access works identically there, without paying
+    numpy's structured-dtype construction overhead (isinstance/dtype
+    validation) on every single draw.
     """
     names = runprops["orb_param_names"]
     namespace = {"rng": rng, "np": np, "params": moon_params}
-    arr = np.zeros(1, dtype=_dtype(names))
-    for name in names:
-        draw_fn = eval(_compile_expr(runprops[name]), namespace)
-        arr[name] = draw_fn()
-    return arr[0]
+    return {name: eval(_compile_expr(runprops[name]), namespace)() for name in names}
 
 
 class _RunpropsDetProb:
