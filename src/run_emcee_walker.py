@@ -16,6 +16,7 @@ import os
 import commentjson
 import numpy as np
 
+import chain_plotter
 import plot_posterior_result
 import runprops
 
@@ -70,6 +71,12 @@ def plot_and_write(sampler, run_config, results_folder):
     np.savetxt(posteriors_path, full_data, delimiter=",", header=header, comments="", fmt=fmt)
     print(f"Posterior samples written to {posteriors_path}")
 
+    # Trace/corner/parameter-vs-likelihood diagnostic plots of the chain,
+    # straight off the live sampler (so they use the full log-posterior,
+    # not just the ll_count blob posteriors.csv records).
+    if param_names:
+        chain_plotter.plot_diagnostics_from_sampler(sampler, param_names, results_folder=results_folder)
+
     # Compare the run's actual starting point (param_config's draw
     # expressions) against its last posterior sample, rather than only
     # ever looking at the last one (as write_frozen_runprops below does).
@@ -100,10 +107,11 @@ def run(run_dir):
     if a run_config was found, otherwise emcee_walker.run_once().
 
     On completion, writes posteriors.csv (one row per (step, walker) of the
-    chain, plus a leading step/ll_count column) and a first-vs-last posterior
-    comparison plot into the run's results_folder, and -- if the run reports
-    param_names -- a frozen_runprops.txt snapshotting the last posterior
-    sample as fixed parameter values.
+    chain, plus a leading step/ll_count column), trace/corner/parameter-vs-
+    likelihood diagnostic plots (see chain_plotter.py), and a first-vs-last
+    posterior comparison plot into the run's results_folder, and -- if the
+    run reports param_names -- a frozen_runprops.txt snapshotting the last
+    posterior sample as fixed parameter values.
 
     Returns the results_folder path, or None if run_config didn't resolve
     one.

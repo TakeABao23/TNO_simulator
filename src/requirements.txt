@@ -2,6 +2,7 @@ numpy
 pandas
 scipy
 matplotlib
+corner  # trace/corner/likelihood chain diagnostic plots, see chain_plotter.py
 spiceypy
 emcee
 commentjson
