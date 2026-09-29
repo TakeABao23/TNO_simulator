@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Take the first and last posterior samples from a run_emcee_walker.py
-results folder's posteriors.csv, build a simulated Population from each,
-and plot them side by side against the Pluto reference population for an
-easy before/after comparison of the chain.
+Post-hoc plots for a run_emcee_walker.py results folder's posteriors.csv:
+chain diagnostics (trace, corner, and parameter-vs-likelihood plots, via
+chain_plotter.py) plus a first-vs-last posterior sample comparison -- each
+built into a simulated Population and plotted side by side against the
+Pluto reference population for an easy before/after look at the chain.
 
 Usage:
     python plot_posterior_result.py results/Pluto_test/Pluto_test_.../posteriors.csv
@@ -14,6 +15,7 @@ import os
 
 import commentjson
 
+import chain_plotter
 from population_class import Population, Pluto
 from population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
 
@@ -125,6 +127,7 @@ def main(posteriors_path):
     print(reference_pop)
 
     results_folder = os.path.dirname(posteriors_path)
+    chain_plotter.plot_diagnostics_from_csv(posteriors_path, results_folder=results_folder)
     first_pop, last_pop = plot_first_last_comparison(posteriors_path, reference_pop, run_runprops,
                                                        results_folder=results_folder)
 

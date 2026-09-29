@@ -1,6 +1,3 @@
-/src/.ipynb_checkpoints/
-/src/__pycache__/
-/src/Parameters/__pycache__/
-/src/Parameters/.ipynb_checkpoints/
+__pycache__/
+.ipynb_checkpoints/
 /src/results/
-/src/runs/Pluto_test/.ipynb_checkpoints/

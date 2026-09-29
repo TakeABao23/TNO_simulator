@@ -16,6 +16,7 @@ import os
 import commentjson
 import numpy as np
 
+import chain_plotter
 import plot_posterior_result
 import runprops
 
@@ -51,13 +52,18 @@ def plot_and_write(sampler, run_config, results_folder):
     # module-level constant -- there's no more params.py/param_versions.py
     # to have swapped it out from under us.
     param_names = run_config.get("moon_param_names")
-    chain = sampler.get_chain()  # (nsteps, nwalkers, ndim)
+    # sampler.burnin_steps (see emcee_walker.emcee_walker()) is how many
+    # leading steps are burn-in -- the sampler is no longer reset() after
+    # burn-in (so chain_plotter.plot_trace_full() can still see it), so
+    # posteriors.csv has to discard those steps explicitly here instead.
+    burnin_steps = getattr(sampler, "burnin_steps", 0)
+    chain = sampler.get_chain(discard=burnin_steps)  # (nsteps, nwalkers, ndim), post-burn-in only
     nsteps, nwalkers, _ = chain.shape
     samples = chain.reshape(-1, chain.shape[-1])  # matches get_chain(flat=True)
     # One row per (step, walker); step varies slowest, matching the
     # chain's own flatten order, so this lines up with `samples`.
     step_numbers = np.repeat(np.arange(nsteps), nwalkers)
-    ll_counts = np.asarray(sampler.get_blobs(flat=True), dtype=float)
+    ll_counts = np.asarray(sampler.get_blobs(discard=burnin_steps, flat=True), dtype=float)
 
     extra_columns = ["step", "ll_count"]
     header = ",".join(extra_columns + list(param_names)) if param_names else ",".join(extra_columns)
@@ -69,6 +75,12 @@ def plot_and_write(sampler, run_config, results_folder):
     fmt = ["%d"] + ["%.18e"] * (full_data.shape[1] - 1)
     np.savetxt(posteriors_path, full_data, delimiter=",", header=header, comments="", fmt=fmt)
     print(f"Posterior samples written to {posteriors_path}")
+
+    # Trace/corner/parameter-vs-likelihood diagnostic plots of the chain,
+    # straight off the live sampler (so they use the full log-posterior,
+    # not just the ll_count blob posteriors.csv records).
+    if param_names:
+        chain_plotter.plot_diagnostics_from_sampler(sampler, param_names, results_folder=results_folder)
 
     # Compare the run's actual starting point (param_config's draw
     # expressions) against its last posterior sample, rather than only
@@ -100,10 +112,13 @@ def run(run_dir):
     if a run_config was found, otherwise emcee_walker.run_once().
 
     On completion, writes posteriors.csv (one row per (step, walker) of the
-    chain, plus a leading step/ll_count column) and a first-vs-last posterior
-    comparison plot into the run's results_folder, and -- if the run reports
-    param_names -- a frozen_runprops.txt snapshotting the last posterior
-    sample as fixed parameter values.
+    chain, plus a leading step/ll_count column), trace/corner/parameter-vs-
+    likelihood diagnostic plots plus a burn-in-included full trace plot and
+    a per-parameter percentile/best-fit summary table (see chain_plotter.py),
+    and a first-vs-last posterior comparison plot into the run's
+    results_folder, and -- if the run reports param_names -- a
+    frozen_runprops.txt snapshotting the last posterior sample as fixed
+    parameter values.
 
     Returns the results_folder path, or None if run_config didn't resolve
     one.

@@ -3,7 +3,8 @@ import population_class
 from population_class import *
 from population_plotter import *
 import TNO_sim_lib
-from TNO_sim_lib import log_prior, moon_params_to_array, moon_params_from_array, draw_moon_params
+from TNO_sim_lib import (log_prior, moon_params_to_array, moon_params_from_array, draw_moon_params,
+                          save_walker_positions, load_walker_positions)
 import logging
 import emcee
 from schwimmbad import MPIPool
@@ -50,25 +51,47 @@ def emcee_walker(run_config=None):
     Works the same under a plain `python emcee_walker.py` (schwimmbad falls
     back to a single-rank/serial pool) as it does under
     `mpiexec -n <numprocs> python emcee_walker.py`.
+
+    The sampler is never reset() after burn-in -- burn-in and sampling run
+    into one continuous chain (the same approach multimoon's mm_run_multi.py
+    takes), with `sampler.burnin_steps` stashed so callers can tell the two
+    phases apart via get_chain(discard=...) instead of losing the burn-in
+    steps outright. This is what lets chain_plotter.plot_trace_full() show
+    the walkers actually converging, not just the already-converged tail.
+
+    If `run_config` has an `init_positions_file` (a path, absolute or
+    relative to the run directory, to a CSV written by
+    TNO_sim_lib.save_walker_positions()), walkers start from the positions
+    in that file instead of drawing fresh from the moon_<name> expressions
+    -- e.g. to resume from a previous run's end-of-burn-in snapshot
+    (results_folder/burnin_end.csv, written right after burn-in below)
+    instead of re-paying for burn-in every time.
     """
     # load config file, if any
     if run_config is not None:
-        nwalkers       = run_config.get("nwalkers", 100)
-        ndim           = run_config.get("ndim", 8)
-        step_count     = run_config.get("nsteps", 1000)
-        burn_count     = run_config.get("nburnin", 500)
-        numpy_seed     = run_config.get("numpy_seed")
-        ref_pop_name   = run_config.get("reference_pop", "Pluto")
-        param_config   = run_config
+        nwalkers            = run_config.get("nwalkers", 100)
+        ndim                = run_config.get("ndim", 8)
+        step_count          = run_config.get("nsteps", 1000)
+        burn_count          = run_config.get("nburnin", 500)
+        numpy_seed          = run_config.get("numpy_seed")
+        ref_pop_name        = run_config.get("reference_pop", "Pluto")
+        init_positions_file = run_config.get("init_positions_file")
+        results_folder      = run_config.get("results_folder")
+        param_config        = run_config
     else:
         print("No run_config detected. Falling back on defaults.")
-        nwalkers       = 10
-        ndim           = 8 # number of params
-        step_count     = 100 # how many times we run the whole simulation
-        burn_count     = 50 # iterations to do and toss before starting the real run
-        numpy_seed     = None
-        ref_pop_name   = "Pluto"
-        param_config   = FALLBACK_RUNPROPS
+        nwalkers            = 10
+        ndim                = 8 # number of params
+        step_count          = 100 # how many times we run the whole simulation
+        burn_count          = 50 # iterations to do and toss before starting the real run
+        numpy_seed          = None
+        ref_pop_name        = "Pluto"
+        init_positions_file = None
+        results_folder      = None
+        param_config        = FALLBACK_RUNPROPS
+
+    if init_positions_file and run_config is not None and not os.path.isabs(init_positions_file):
+        init_positions_file = os.path.join(run_config["runs_file"], init_positions_file)
 
     # create MPIPool and its contents
     with MPIPool() as pool:
@@ -94,12 +117,18 @@ def emcee_walker(run_config=None):
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
 
-        p0 = np.array([moon_params_to_array(draw_moon_params(param_config)) for _ in range(nwalkers)])
+        if init_positions_file:
+            print(f"Seeding {nwalkers} walkers from {init_positions_file}")
+            p0 = load_walker_positions(init_positions_file, param_config, nwalkers)
+        else:
+            p0 = np.array([moon_params_to_array(draw_moon_params(param_config)) for _ in range(nwalkers)])
         sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior, pool=pool,
                                          args=[reference_pop, det_prob_fn, param_config])
         print(f"Burn-in: {burn_count} steps x {nwalkers} walkers")
         state = sampler.run_mcmc(p0, burn_count, progress=True)
-        sampler.reset()
+        if results_folder:
+            burnin_end_path = save_walker_positions(state.coords, param_config, results_folder)
+            print(f"End-of-burn-in walker positions written to {burnin_end_path}")
         print(f"Sampling: {step_count} steps x {nwalkers} walkers")
         sampler.run_mcmc(state, step_count, progress=True)
         # Stashed so callers (e.g. run_emcee_walker.py) can plot posterior
@@ -107,11 +136,16 @@ def emcee_walker(run_config=None):
         # run actually used, without re-deriving them from runprops themselves.
         sampler.reference_pop = reference_pop
         sampler.det_prob_fn = det_prob_fn
-        # walker 0's actual pre-burn-in starting position, i.e. what
-        # param_config drew before emcee moved any walkers -- distinct from
-        # the first post-burn-in posterior sample.
+        # walker 0's actual pre-burn-in starting position -- either drawn
+        # fresh from param_config, or loaded from init_positions_file --
+        # distinct from the first post-burn-in posterior sample.
         sampler.initial_params = moon_params_from_array(p0[0], param_config)
-        # TODO: multimoon has functions to graph emcee results
+        # How many leading steps of sampler.get_chain()/get_log_prob() are
+        # burn-in -- callers pass this as discard= to get the post-burn-in
+        # chain (what used to be the only chain left, back when this reset()
+        # the sampler right after burn-in), or discard=0 for the full chain
+        # including burn-in (see chain_plotter.sampler_to_full_chain()).
+        sampler.burnin_steps = burn_count
         # TODO: verbose mode and plotting mode
         return sampler
 
