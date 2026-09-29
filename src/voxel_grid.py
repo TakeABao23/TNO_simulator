@@ -13,12 +13,19 @@ Bin edges (H_EDGES/DM_EDGES/SEP_EDGES/PA_EDGES below) are fixed constants
 by science-team specification, not runprops-driven like the moon/wide/
 orb_param draw expressions -- ask before changing them.
 
-NOTE: "separation" here is binned directly in arcsec, the same units
-Population.compute_separation() already returns -- despite "pixel
-separation" in the original request, no plate-scale (arcsec/pixel)
-conversion is applied, by explicit choice. If a real detector's pixel
-scale should be used instead, SEP_EDGES needs converting (divide by that
-scale) and this note updated.
+NOTE: "separation" was originally specified as 0-2, 2-4, 4-8, 8-16, 16-32
+"pixels", on the assumption of a detector pixel scale that was never
+pinned down -- Population.compute_separation() only ever produces arcsec.
+SEP_EDGES below converts that original pixel-based spec to arcsec via the
+HST WFC3/UVIS plate scale (0.04 arcsec/pixel, a common choice for TNO
+binary imaging surveys): the *shape* (doubling bins) is unchanged, only
+the units/scale. Confirmed against the Pluto reference population: its
+observed separations (0.09-0.80 arcsec) now spread across the bins
+(counts [1, 3, 18, 111, 314], not all 447 collapsed into one) -- before
+this conversion, every observed *and* simulated separation fell inside
+the single first bin (arcsec 0-2 covers far more range than the ~0-1
+arcsec these binaries actually span), leaving this axis unable to
+constrain the fit at all.
 """
 import numpy as np
 from scipy.stats import poisson
@@ -36,8 +43,11 @@ H_EDGES = np.array([-2.0, 2.0, 4.0, 6.0, 8.0, 10.0])
 # would skip it).
 DM_EDGES = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0])
 
-# Separation in arcsec (see module docstring): doubling bins from 0-32.
-SEP_EDGES = np.array([0.0, 2.0, 4.0, 8.0, 16.0, 32.0])
+# Separation in arcsec (see module docstring): the original 0-2, 2-4, 4-8,
+# 8-16, 16-32 "pixel" bins, converted via the HST WFC3/UVIS plate scale
+# (0.04 arcsec/pixel).
+SEP_PLATE_SCALE = 0.04  # arcsec/pixel, HST WFC3/UVIS
+SEP_EDGES = np.array([0.0, 2.0, 4.0, 8.0, 16.0, 32.0]) * SEP_PLATE_SCALE
 
 GRID_AXES = ("H", "dm", "sep", "pa")
 GRID_EDGES = (H_EDGES, DM_EDGES, SEP_EDGES, PA_EDGES)
