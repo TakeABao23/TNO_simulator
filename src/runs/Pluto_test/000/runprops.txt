@@ -64,7 +64,7 @@
     # with `rng` and `params` (the current moon-level hyperparameter
     # structured record) in scope.
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a" : "lambda: rng.power(params['ka']) * 40000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
+    "a" : "lambda: rng.power(params['ka']) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
     "e" : "lambda: rng.beta(params['ae'], params['ke'])",
     "i" : "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
     "w" : "lambda: rng.uniform(0.0, 360.0)",
