@@ -217,13 +217,18 @@ def param_bounds(runprops):
     return bounds
 
 
-def log_prior(theta, runprops):
+def log_prior(params, runprops):
     """
     Uniform prior over runprops' param_bounds, in moon_param_names order.
     Returns 0.0 if every parameter is within bounds, -inf otherwise (e.g. a
     negative ka/ae/ke/ai/ki, which would crash rng.power/rng.beta).
+
+    `params` is already a moon-like structured record (see
+    moon_params_from_array()), not raw theta -- emcee_walker.log_posterior()
+    builds it once from theta and passes the same record to both
+    log_prior() and get_log_likelihood(), instead of each independently
+    reconstructing it.
     """
-    params = moon_params_from_array(theta, runprops)
     bounds = param_bounds(runprops)
     for name in runprops["moon_param_names"]:
         lo, hi = bounds[name]

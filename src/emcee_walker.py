@@ -179,7 +179,7 @@ def emcee_walker(run_config=None):
         return sampler
 
     
-def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = False):
+def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbose = False):
     """
     Log-likelihood of the observed binary population given one simulated
     realization, via voxel_grid.voxel_grid_log_likelihood(): bins detected
@@ -193,9 +193,11 @@ def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = F
 
     Parameters
     ----------
-    theta : array-like, shape (ndim,)
-        Flat moonlike parameter vector for one emcee walker, in
-        param_config['moon_param_names'] order (fb, ka, ae, ke, ai, ki, mdm, sdm).
+    init_params : structured scalar
+        Moon-like hyperparameter record (see moon_params_from_array()) for
+        one emcee walker -- log_posterior() builds this once from theta
+        and passes the same record here and to log_prior(), rather than
+        each independently reconstructing it from theta.
     reference_pop : Population
         Real observed binaries. reference_pop.popu must have columns:
         H, dm, sep, pa.
@@ -210,7 +212,6 @@ def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = F
     float
         Total log-likelihood (see voxel_grid.voxel_grid_log_likelihood).
     """
-    init_params = moon_params_from_array(theta, param_config)
     simulated_pop = Population(reference_pop.popu, init_params, det_prob, runprops=param_config)
     det = simulated_pop.popu[simulated_pop.popu['detected']]
 
@@ -236,26 +237,32 @@ def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = F
 
 def log_posterior(theta, reference_pop, det_prob, param_config, verbose = False):
     """
-    log_prior(theta) + get_log_likelihood(theta, ...); this is what emcee
+    log_prior(params) + get_log_likelihood(params, ...); this is what emcee
     should sample, so that walker proposals outside param_bounds (e.g. a
     negative ka/ae/ke/ai/ki, which crashes rng.power/rng.beta) are rejected
     via -inf instead of reaching the likelihood function at all.
+
+    Converts theta to a moon-like structured record exactly once here, and
+    passes that same record to both log_prior() and get_log_likelihood()
+    -- they used to each independently reconstruct it from theta via
+    moon_params_from_array(), the same conversion done twice on every
+    single evaluation.
 
     Returns (log_posterior, ll_count) -- the ll_count is returned as an
     emcee blob so run_emcee_walker.py can write it out alongside each
     posterior sample without recomputing it.
     """
-    lp = log_prior(theta, param_config)
+    init_params = moon_params_from_array(theta, param_config)
+    lp = log_prior(init_params, param_config)
     if not np.isfinite(lp):
         return -np.inf, np.nan
-    ll_count = get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose)
+    ll_count = get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbose)
     return lp + ll_count, ll_count
 
 def run_once():
     reference_pop = Pluto()
     moon_params = draw_moon_params(FALLBACK_RUNPROPS)
-    theta = moon_params_to_array(moon_params)
-    ll_count = get_log_likelihood(theta, reference_pop, fallback_det_prob, FALLBACK_RUNPROPS, True)
+    ll_count = get_log_likelihood(moon_params, reference_pop, fallback_det_prob, FALLBACK_RUNPROPS, True)
     simulated_pop = Population(reference_pop.popu, moon_params, fallback_det_prob, runprops=FALLBACK_RUNPROPS)
 
 if __name__ == '__main__':
