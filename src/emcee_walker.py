@@ -4,7 +4,7 @@ from population_class import *
 from population_plotter import *
 import TNO_sim_lib
 from TNO_sim_lib import (log_prior, moon_params_to_array, moon_params_from_array, draw_moon_params,
-                          save_walker_positions, load_walker_positions)
+                          save_walker_positions, load_walker_positions, load_det_prob)
 import logging
 import emcee
 from schwimmbad import MPIPool
@@ -66,6 +66,12 @@ def emcee_walker(run_config=None):
     -- e.g. to resume from a previous run's end-of-burn-in snapshot
     (results_folder/burnin_end.csv, written right after burn-in below)
     instead of re-paying for burn-in every time.
+
+    If `run_config` has a `det_prob` eval'able lambda expression (same
+    pattern as the moon/wide/orb_param_names draw expressions), it's used
+    as the detection-probability function; otherwise falls back to the
+    older `det_prob_function`-named-lookup mechanism, and then to
+    runprops.fallback_det_prob.
     """
     # load config file, if any
     if run_config is not None:
@@ -99,7 +105,16 @@ def emcee_walker(run_config=None):
             pool.wait()
             return None
 
-        if run_config is not None:
+        if run_config is not None and "det_prob" in run_config:
+            # Preferred: runprops-driven, same eval'd-lambda pattern as the
+            # moon/wide/orb_param draw expressions -- a run's own
+            # runprops.txt is then a complete record of its detection
+            # function too, and doesn't depend on a same-named Python
+            # function already existing in this module's globals (see the
+            # det_prob_function fallback below, which does and is easy to
+            # silently miss).
+            det_prob_fn = load_det_prob(run_config)
+        elif run_config is not None:
             det_prob_name = run_config.get("det_prob_function")
             det_prob_fn = globals().get(det_prob_name, fallback_det_prob)
             if det_prob_fn is fallback_det_prob:
