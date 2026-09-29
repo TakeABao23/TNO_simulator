@@ -17,7 +17,10 @@ class instances -- dict-like field access, but a real ndarray dtype, which
 converts to/from the flat float array emcee's theta requires via
 numpy.lib.recfunctions instead of hand-written zip/dict-comprehension code.
 """
+import os
+
 import numpy as np
+import pandas as pd
 from numpy.lib import recfunctions as rfn
 
 # Process-wide Generator, deliberately not reseeded by runprops' numpy_seed
@@ -86,6 +89,52 @@ def moon_params_from_array(theta, runprops):
     """Inverse of moon_params_to_array: flat array -> structured record keyed by moon_param_names."""
     names = runprops["moon_param_names"]
     return rfn.unstructured_to_structured(np.array([theta], dtype=np.float64), dtype=_dtype(names))[0]
+
+
+def save_walker_positions(positions, runprops, results_folder, filename="burnin_end.csv"):
+    """
+    Write a (nwalkers, ndim) array of flat moon-like parameter vectors --
+    e.g. an emcee State's .coords right after burn-in -- to
+    results_folder/filename, one row per walker, columns in
+    moon_param_names order. Lets a later run seed its own walkers from
+    here (see load_walker_positions()) instead of drawing fresh from the
+    moon_<name> expressions, e.g. to resume from where burn-in left off
+    without re-paying for it.
+
+    Returns the path written.
+    """
+    names = runprops["moon_param_names"]
+    path = os.path.join(results_folder, filename)
+    pd.DataFrame(np.asarray(positions), columns=names).to_csv(path, index=False)
+    return path
+
+
+def load_walker_positions(path, runprops, nwalkers):
+    """
+    Inverse of save_walker_positions(): load a (nwalkers, ndim) array of
+    flat moon-like parameter vectors from a CSV it wrote (or any CSV with
+    the same one-row-per-walker, moon_param_names-ordered-columns shape),
+    for seeding emcee_walker()'s initial walker positions instead of
+    drawing them fresh from the moon_<name> expressions.
+
+    Raises ValueError if the file's columns don't match moon_param_names
+    (order included), or its row count doesn't match `nwalkers` -- there
+    would otherwise be no sane way to pick which rows become which
+    walkers' starting positions.
+    """
+    names = runprops["moon_param_names"]
+    df = pd.read_csv(path)
+    if list(df.columns) != list(names):
+        raise ValueError(
+            f"{path}: columns {list(df.columns)} don't match "
+            f"moon_param_names {list(names)}"
+        )
+    if len(df) != nwalkers:
+        raise ValueError(
+            f"{path}: has {len(df)} rows but nwalkers is {nwalkers} -- "
+            "can't seed one walker position per row otherwise."
+        )
+    return df.to_numpy(dtype=np.float64)
 
 
 def param_bounds(runprops):
