@@ -132,6 +132,12 @@ def emcee_walker(run_config=None):
             reference_pop = Pluto()
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
+        # Precomputed once, here, before reference_pop is ever pickled into
+        # a sampler.args task: reference_pop.popu never changes across the
+        # whole run, but get_log_likelihood() calls this on every single
+        # walker/step otherwise -- baking it in now means every worker's
+        # freshly-unpickled copy already has it, not just this process'.
+        reference_pop.voxel_n_obs = voxel_grid.voxel_counts(reference_pop.popu)
 
         if init_positions_file:
             print(f"Seeding {nwalkers} walkers from {init_positions_file}")
@@ -208,7 +214,14 @@ def get_log_likelihood(theta, reference_pop, det_prob, param_config, verbose = F
     simulated_pop = Population(reference_pop.popu, init_params, det_prob, runprops=param_config)
     det = simulated_pop.popu[simulated_pop.popu['detected']]
 
-    ll_count = voxel_grid.voxel_grid_log_likelihood(det, reference_pop.popu)
+    # reference_pop.voxel_n_obs, if emcee_walker() precomputed it (it does,
+    # right after building reference_pop), skips re-histogramming the
+    # observed population from scratch on every single call -- it never
+    # changes across a run. Falls back to computing it here (still
+    # correct, just not optimized) for any caller that built its own
+    # reference_pop without going through emcee_walker(), e.g. tests.
+    n_obs = getattr(reference_pop, "voxel_n_obs", None)
+    ll_count = voxel_grid.voxel_grid_log_likelihood(det, reference_pop.popu, n_obs=n_obs)
     simulated_pop.ll_count = ll_count
     '''
     if verbose is True:

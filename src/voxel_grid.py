@@ -72,7 +72,7 @@ def voxel_counts(popu):
     return counts
 
 
-def voxel_grid_log_likelihood(simulated_popu, observed_popu):
+def voxel_grid_log_likelihood(simulated_popu, observed_popu=None, n_obs=None):
     """
     Sum, over every voxel of the fixed 4D (H, dm, sep, pa) grid, the
     Poisson log-probability of the observed count given the simulated
@@ -84,8 +84,16 @@ def voxel_grid_log_likelihood(simulated_popu, observed_popu):
         Simulated, already-detected binaries (e.g.
         simulated_pop.popu[simulated_pop.popu['detected']]). Must have
         columns H, dm, sep, pa.
-    observed_popu : pd.DataFrame
-        Real observed binaries, same required columns.
+    observed_popu : pd.DataFrame, optional
+        Real observed binaries, same required columns. Ignored if `n_obs`
+        is given.
+    n_obs : ndarray, shape GRID_SHAPE, optional
+        Precomputed voxel_counts(observed_popu) -- pass this instead of
+        `observed_popu` when the observed population is the same across
+        many calls (e.g. every emcee likelihood evaluation in a run: the
+        real/reference data never changes step to step), to avoid
+        re-histogramming it from scratch on every single call. Exactly one
+        of `observed_popu`/`n_obs` must be given.
 
     Returns
     -------
@@ -97,7 +105,8 @@ def voxel_grid_log_likelihood(simulated_popu, observed_popu):
         -inf (which would reject the walker step outright rather than
         merely disfavoring it).
     """
+    if n_obs is None:
+        n_obs = voxel_counts(observed_popu)
     n_sim = voxel_counts(simulated_popu)
-    n_obs = voxel_counts(observed_popu)
     mu = np.where(n_sim > 0, n_sim, 1e-300)
     return float(np.sum(poisson.logpmf(n_obs, mu=mu)))

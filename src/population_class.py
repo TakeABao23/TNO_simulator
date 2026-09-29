@@ -55,11 +55,22 @@ class Population():
             doesn't exist for a single.
         """
 
+        # Plain positional array indexing instead of .iterrows(): iterrows()
+        # builds a full pandas Series (with its own dtype-unification and
+        # index-alignment overhead) for every single row, which profiling
+        # showed as a dominant cost when this loop runs on every emcee
+        # likelihood evaluation, for every reference TNO.
+        names = reference_pop['Name'].to_numpy()
+        xs = reference_pop['x'].to_numpy()
+        ys = reference_pop['y'].to_numpy()
+        zs = reference_pop['z'].to_numpy()
+        Hs = reference_pop['H'].to_numpy()
+
         results = []
-        for _, row in reference_pop.iterrows():
-            name = row['Name']
-            H = row['H']
-            xyz_earth  = (row['x'], row['y'], row['z'])
+        for idx in range(len(reference_pop)):
+            name = names[idx]
+            H = Hs[idx]
+            xyz_earth  = (xs[idx], ys[idx], zs[idx])
 
             # Check binary type
             binary_check = np.random.rand()
@@ -194,15 +205,21 @@ class Population():
         """
         result = self.popu
 
+        # Plain positional array indexing instead of .iterrows() -- see
+        # population_simulator()'s equivalent change for why.
+        binary_types = result['binary_type'].to_numpy()
+        seps = result['sep'].to_numpy()
+        dms = result['dm'].to_numpy()
+
         probs    = []
         detected = []
 
-        for _, row in result.iterrows():
-            if row['binary_type'] == 'single' or np.isnan(row['sep']):
+        for i in range(len(result)):
+            if binary_types[i] == 'single' or np.isnan(seps[i]):
                 probs.append(np.nan)
                 detected.append(False)
             else:
-                p = detection_prob_func(row['sep'], row['dm'])
+                p = detection_prob_func(seps[i], dms[i])
                 probs.append(p)
                 detected.append(np.random.random() < p)
 
