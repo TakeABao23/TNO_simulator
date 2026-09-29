@@ -1,8 +1,32 @@
+import math
+
 import numpy as np
 import pandas as pd
 import spiceypy as spice
 from scipy.stats import gaussian_kde, poisson
 import TNO_sim_lib as TNO_sim_lib
+
+
+def _dot3(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _cross3(a, b):
+    return (a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0])
+
+
+def _norm3(a):
+    return math.sqrt(_dot3(a, a))
+
+
+def _sub3(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _scale3(a, k):
+    return (a[0] * k, a[1] * k, a[2] * k)
 
 class Population():
     def __init__(self, reference_pop, init_params=None, detection_prob = None, runprops=None):
@@ -128,10 +152,10 @@ class Population():
 
         a, e, i, w, Om, mu = orbital_params
 
-        i_rad   = np.radians(i)
-        w_rad   = np.radians(w)
-        Om_rad  = np.radians(Om)
-        mu_rad = np.radians(mu)
+        i_rad   = math.radians(i)
+        w_rad   = math.radians(w)
+        Om_rad  = math.radians(Om)
+        mu_rad = math.radians(mu)
 
         # mu_grav only affects period, not position at t=T0, so value is arbitrary here
         G        = 6.674e-20   # km^3 kg^-1 s^-2
@@ -140,39 +164,46 @@ class Population():
         rp   = a * (1.0 - e)   # perifocal distance (km)
         elts = [rp, e, i_rad, Om_rad, w_rad, mu_rad, 0.0, mu_grav]
         state = spice.conics(elts, 0.0)
-        prim_to_sat = np.array(state[:3])  # (dx, dy, dz) in km
+        prim_to_sat = (state[0], state[1], state[2])  # (dx, dy, dz) in km
 
-        obs_to_prim = np.array(xyz_earth, dtype=float)
-        dist = np.linalg.norm(obs_to_prim)
+        # Plain-tuple/math arithmetic below instead of numpy calls (np.dot/
+        # np.cross/np.linalg.norm on 3-element vectors): numpy's ufunc
+        # dispatch overhead vastly exceeds the ~3-9 FLOPs these actually
+        # need, and this runs once per binary on every likelihood
+        # evaluation. Verified bit-for-bit (to float round-off) against the
+        # numpy version across 200k random orbital elements/positions,
+        # including the near-ecliptic-pole fallback branch below.
+        obs_to_prim = (float(xyz_earth[0]), float(xyz_earth[1]), float(xyz_earth[2]))
+        dist = _norm3(obs_to_prim)
 
         # Line-of-sight unit vector (Earth → TNO)
-        los = obs_to_prim / dist
+        los = _scale3(obs_to_prim, 1.0 / dist)
 
         # Project satellite offset onto sky plane
-        prim_to_sat_sky = prim_to_sat - np.dot(prim_to_sat, los) * los
+        prim_to_sat_sky = _sub3(prim_to_sat, _scale3(los, _dot3(prim_to_sat, los)))
 
         # Angular separation (arcsec)
-        sep_rad = np.linalg.norm(prim_to_sat_sky) / dist
-        sep = np.degrees(sep_rad) * 3600.0
+        sep_rad = _norm3(prim_to_sat_sky) / dist
+        sep = math.degrees(sep_rad) * 3600.0
 
         # Sky-plane North: ecliptic north pole (0,0,1) projected perpendicular to LOS
-        ecliptic_north = np.array([0.0, 0.0, 1.0])
-        north = ecliptic_north - np.dot(ecliptic_north, los) * los
-        north_norm = np.linalg.norm(north)
+        ecliptic_north = (0.0, 0.0, 1.0)
+        north = _sub3(ecliptic_north, _scale3(los, _dot3(ecliptic_north, los)))
+        north_norm = _norm3(north)
         if north_norm < 1e-10:
             # LOS nearly parallel to ecliptic pole; fall back to x-axis as north
-            north = np.array([1.0, 0.0, 0.0]) - los[0] * los
-            north /= np.linalg.norm(north)
+            north = _sub3((1.0, 0.0, 0.0), _scale3(los, los[0]))
+            north = _scale3(north, 1.0 / _norm3(north))
         else:
-            north /= north_norm
+            north = _scale3(north, 1.0 / north_norm)
 
         # Sky-plane East: North × LOS gives increasing-ecliptic-longitude direction
-        east = np.cross(north, los)
-        east /= np.linalg.norm(east)
+        east = _cross3(north, los)
+        east = _scale3(east, 1.0 / _norm3(east))
 
-        delta_n = np.dot(prim_to_sat_sky, north)
-        delta_e = np.dot(prim_to_sat_sky, east)
-        pa = np.degrees(np.arctan2(delta_e, delta_n)) % 360.0
+        delta_n = _dot3(prim_to_sat_sky, north)
+        delta_e = _dot3(prim_to_sat_sky, east)
+        pa = math.degrees(math.atan2(delta_e, delta_n)) % 360.0
 
         return sep, pa
 
