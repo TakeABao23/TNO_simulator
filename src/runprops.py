@@ -118,7 +118,7 @@ FALLBACK_RUNPROPS = {
     "wide_mdm": "np.nan",
     "wide_sdm": "np.nan",
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a": "lambda: rng.power(params['ka']) * 10000",
+    "a": "lambda: rng.power(params['ka']) * 40000",  # scale raised from 10000 km, see runs/Pluto_test/000/runprops.txt's "a" comment
     "e": "lambda: rng.beta(params['ae'], params['ke'])",
     "i": "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
     "w": "lambda: rng.uniform(0.0, 360.0)",
