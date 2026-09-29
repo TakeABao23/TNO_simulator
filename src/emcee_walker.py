@@ -50,6 +50,13 @@ def emcee_walker(run_config=None):
     Works the same under a plain `python emcee_walker.py` (schwimmbad falls
     back to a single-rank/serial pool) as it does under
     `mpiexec -n <numprocs> python emcee_walker.py`.
+
+    The sampler is never reset() after burn-in -- burn-in and sampling run
+    into one continuous chain (the same approach multimoon's mm_run_multi.py
+    takes), with `sampler.burnin_steps` stashed so callers can tell the two
+    phases apart via get_chain(discard=...) instead of losing the burn-in
+    steps outright. This is what lets chain_plotter.plot_trace_full() show
+    the walkers actually converging, not just the already-converged tail.
     """
     # load config file, if any
     if run_config is not None:
@@ -99,7 +106,6 @@ def emcee_walker(run_config=None):
                                          args=[reference_pop, det_prob_fn, param_config])
         print(f"Burn-in: {burn_count} steps x {nwalkers} walkers")
         state = sampler.run_mcmc(p0, burn_count, progress=True)
-        sampler.reset()
         print(f"Sampling: {step_count} steps x {nwalkers} walkers")
         sampler.run_mcmc(state, step_count, progress=True)
         # Stashed so callers (e.g. run_emcee_walker.py) can plot posterior
@@ -111,7 +117,12 @@ def emcee_walker(run_config=None):
         # param_config drew before emcee moved any walkers -- distinct from
         # the first post-burn-in posterior sample.
         sampler.initial_params = moon_params_from_array(p0[0], param_config)
-        # TODO: multimoon has functions to graph emcee results
+        # How many leading steps of sampler.get_chain()/get_log_prob() are
+        # burn-in -- callers pass this as discard= to get the post-burn-in
+        # chain (what used to be the only chain left, back when this reset()
+        # the sampler right after burn-in), or discard=0 for the full chain
+        # including burn-in (see chain_plotter.sampler_to_full_chain()).
+        sampler.burnin_steps = burn_count
         # TODO: verbose mode and plotting mode
         return sampler
 
