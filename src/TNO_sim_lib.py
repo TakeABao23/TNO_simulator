@@ -80,6 +80,47 @@ def draw_orbit_params(moon_params, runprops):
     return arr[0]
 
 
+class _RunpropsDetProb:
+    """
+    Picklable det_prob callable built from runprops' `det_prob` eval'able
+    lambda expression string. A bare compiled lambda can't be pickled
+    ("Can't pickle <function <lambda>>: attribute lookup <lambda> on
+    __main__ failed"), which is fatal here -- det_prob_fn is part of
+    emcee's sampler args, and schwimmbad.MPIPool pickles those to ship a
+    task to each worker rank. This wrapper instead pickles as just its
+    source expression (via __getstate__/__setstate__) and re-evals it once
+    on the receiving end (worker unpickling, or this process at
+    construction), not on every call -- __call__ itself never re-evals.
+    """
+    def __init__(self, expr):
+        self.expr = expr
+        self._fn = eval(expr, {"rng": rng, "np": np})
+
+    def __call__(self, sep, dm):
+        return self._fn(sep, dm)
+
+    def __getstate__(self):
+        return self.expr
+
+    def __setstate__(self, expr):
+        self.expr = expr
+        self._fn = eval(expr, {"rng": rng, "np": np})
+
+
+def load_det_prob(runprops):
+    """
+    Build the detection-probability callable from runprops' `det_prob`
+    eval'able lambda expression string, (sep, dm) -> bool -- same
+    runprops-driven pattern as the orb_param_names lambdas, so a run's own
+    runprops.txt is a complete, reproducible record of its detection
+    function too, not just its moon/wide/orbital parameter distributions.
+
+    Returns a _RunpropsDetProb, not a bare lambda -- safe to pass through
+    emcee's MPIPool to worker ranks (see its docstring).
+    """
+    return _RunpropsDetProb(runprops["det_prob"])
+
+
 def moon_params_to_array(moon_params):
     """Structured moon-params record -> flat float64 array (emcee's theta), in the record's own field order."""
     return rfn.structured_to_unstructured(np.array([moon_params]))[0].astype(np.float64)
