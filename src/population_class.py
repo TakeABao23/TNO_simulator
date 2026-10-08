@@ -126,8 +126,8 @@ class Population():
                 orb_names = self.runprops["orb_param_names"]
                 orb = TNO_sim_lib.draw_orbit_params(self.moonlike, self.runprops)
                 orbital_params = [orb[name] for name in orb_names]
-                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
                 dm = abs(np.random.normal(self.moonlike['mdm'], self.moonlike['sdm']))
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H, dm)
             else:
                 binary_type = 'wide'
                 # Wide binaries reuse the moonlike orbital-element
@@ -137,13 +137,13 @@ class Population():
                 orb_names = self.runprops["orb_param_names"]
                 orb = TNO_sim_lib.draw_orbit_params(self.moonlike, self.runprops)
                 orbital_params = [orb[name] for name in orb_names]
-                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
                 dm = abs(np.random.normal(0.0, self.wide['sdm']))
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H, dm)
 
             results.append({'Name': name, 'H': H, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
         return pd.DataFrame(results)
 
-    def compute_separation(self, xyz_earth, orbital_params, H):
+    def compute_separation(self, xyz_earth, orbital_params, H, dm):
         """
         Compute the sky-plane separation and position angle of a TNO binary.
 
@@ -163,8 +163,11 @@ class Population():
         xyz_earth : array-like, shape (3,)
             Geocentric J2000 ecliptic position of the primary TNO in km.
         H : float
-            Absolute magnitude of the primary; sets the system mass using
-            runprops' albedo and density (see _gm_h0).
+            Absolute magnitude of the primary.
+        dm : float
+            Secondary-minus-primary magnitude difference. With H, sets the
+            system mass (primary + secondary, both assumed to share
+            runprops' albedo and density; see _gm_h0).
 
         Returns
         -------
@@ -180,7 +183,8 @@ class Population():
         mu_rad = math.radians(mu)
 
         # mu_grav only affects period, not position at t=T0
-        mu_grav = self.gm_h0 * 10.0 ** (-0.6 * H)
+        # Secondary has H + dm, so its mass is the primary's * 10^(-0.6 dm)
+        mu_grav = self.gm_h0 * 10.0 ** (-0.6 * H) * (1.0 + 10.0 ** (-0.6 * dm))
 
         rp   = a * (1.0 - e)   # perifocal distance (km)
         elts = [rp, e, i_rad, Om_rad, w_rad, mu_rad, 0.0, mu_grav]
@@ -305,8 +309,8 @@ class Pluto(Population):
         i = 96.2 # deg
         lan = 223.1 # deg
         aop = 0.0 # deg
-        dm = 1.9
-        dm_std = 0.05
+        dm_mean = 1.9
+        dm_std = 0.2
         scatter_km = 0.1 * AU_km
         x0 = d_km * np.cos(lat_rad) * np.cos(lon_rad)
         y0 = d_km * np.cos(lat_rad) * np.sin(lon_rad)
@@ -333,14 +337,14 @@ class Pluto(Population):
                 binary_type = 'moonlike'
                 mea = np.random.uniform(0.0, 360.0)
                 orbital_params = (a, e, i, aop, lan, mea)
-                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
-                dm = abs(np.random.normal(dm, dm_std))
+                dm = abs(np.random.normal(dm_mean, dm_std))
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H, dm)
             else:
                 binary_type = 'wide'
                 mea = np.random.uniform(0.0, 360.0)
                 orbital_params = (a, e, i, aop, lan, mea)
-                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
-                dm = abs(np.random.normal(dm, dm_std))
+                dm = abs(np.random.normal(dm_mean, dm_std))
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H, dm)
 
             results.append({'Name': name, 'x': x, 'y': y, 'z': z, 'H': H, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
         return pd.DataFrame(results)
