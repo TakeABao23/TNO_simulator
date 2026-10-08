@@ -11,7 +11,9 @@ Usage:
 script's own directory (same convention as emcee_walker.py's RUN_DIR).
 """
 import argparse
+import json
 import os
+import re
 
 import commentjson
 import numpy as np
@@ -23,27 +25,115 @@ import runprops
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def write_frozen_runprops(last_sample, param_names, results_folder):
+def _set_runprops_value(text, key, value):
     """
-    Write a frozen_runprops.txt into `results_folder` that mirrors the run's
-    own runprops.txt (already copied there by runprops.load_runprops), but
-    with each moon_<name> draw expression replaced by its fixed value from
-    `last_sample` (e.g. the last row of posteriors.csv) instead of drawing a
-    random walker start -- a reproducible snapshot of the run's final
-    estimate. Replaces the old params.py-freezing approach now that the
-    parameter draw expressions live in runprops.txt itself, not a separate
-    params.py module.
+    Return `text` (a runprops.txt's contents) with `key`'s value replaced
+    by `value`, leaving every other line -- comments included -- as is.
+    Returns None if `key` isn't in `text`.
+    """
+    match = re.search(r'^\s*"%s"\s*:\s*' % re.escape(key), text, re.M)
+    if match is None:
+        return None
+    _, value_end = json.JSONDecoder().raw_decode(text, match.end())
+    return text[:match.end()] + json.dumps(value) + text[value_end:]
+
+
+def _add_runprops_value(text, key, value, comment):
+    """
+    Insert `key`: `value` (with a preceding `comment` line) into `text`,
+    right after the "numpy_seed" line, or after the opening brace if there
+    is none.
+    """
+    entry = f'    # {comment}\n    "{key}": {json.dumps(value)},\n'
+    match = re.search(r'^\s*"numpy_seed".*\n', text, re.M)
+    if match is None:
+        match = re.search(r"\{[^\n]*\n", text)
+    return text[:match.end()] + entry + text[match.end():]
+
+
+def _set_comment_above(text, key, comment_lines):
+    """
+    Replace the contiguous block of comment lines directly above `key`'s
+    line in `text` with `comment_lines` (inserting one if there is none).
+    Returns `text` unchanged if `key` isn't in it.
+    """
+    lines = text.split("\n")
+    for idx, line in enumerate(lines):
+        if re.match(r'\s*"%s"\s*:' % re.escape(key), line):
+            break
+    else:
+        return text
+    start = idx
+    while start > 0 and lines[start - 1].lstrip().startswith("#"):
+        start -= 1
+    indent = re.match(r"\s*", lines[idx]).group()
+    block = [f"{indent}# {comment}" for comment in comment_lines]
+    return "\n".join(lines[:start] + block + lines[idx:])
+
+
+def write_next_runprops(best_sample, param_names, run_config, results_folder):
+    """
+    Write a next_runprops.txt into `results_folder` that a later run can
+    use directly as its runs/<objectname>/<run_file>/runprops.txt to
+    continue from this one.
+
+    It is this run's own runprops.txt (already copied into results_folder
+    by runprops.load_runprops), comments and all, with only these changed:
+      init_positions_file  this run's final_positions.csv, relative to the
+                           runs/<objectname>/<run_file> directory (so it
+                           works from any sibling run directory)
+      moon_<name>          `best_sample` (the maximum-posterior sample) --
+                           unused while init_positions_file is set, but a
+                           record of this run's best fit
+      run_file             incremented, e.g. "002" -> "003"
+      RunGoal              notes which run this continues from
+    and the comment above "moon_param_names" rewritten to say where the
+    moon_<name> values came from.
     """
     source_path = os.path.join(results_folder, "runprops.txt")
     with open(source_path) as f:
-        frozen = commentjson.load(f)
+        text = f.read()
 
-    for name, value in zip(param_names, last_sample):
-        frozen[f"moon_{name}"] = repr(float(value))
+    replacements = {f"moon_{name}": repr(float(value))
+                    for name, value in zip(param_names, best_sample)}
 
-    output_path = os.path.join(results_folder, "frozen_runprops.txt")
+    run_file = str(run_config.get("run_file"))
+    if run_file.isdigit():
+        replacements["run_file"] = str(int(run_file) + 1).zfill(len(run_file))
+    replacements["RunGoal"] = (f"Continue from run {run_file} "
+                               f"({os.path.basename(results_folder)})")
+
+    final_path = os.path.join(results_folder, "final_positions.csv")
+    if os.path.exists(final_path):
+        replacements["init_positions_file"] = os.path.relpath(
+            final_path, run_config["runs_file"])
+    else:
+        print(f"No {final_path}; next_runprops.txt will draw fresh "
+              "walker positions instead of continuing from this run.")
+
+    for key, value in replacements.items():
+        updated = _set_runprops_value(text, key, value)
+        if updated is None:
+            updated = _add_runprops_value(
+                text, key, value,
+                f"Added by run {run_file}'s write_next_runprops()")
+        text = updated
+
+    text = _set_comment_above(text, "moon_param_names", [
+        "Moon-like binary parameters: names (fixes the structured-array field",
+        "order and emcee's flat theta order) and one draw expression per name,",
+        "each eval'd with `rng` (a numpy Generator) in scope. Unused while",
+        "init_positions_file is set; these are run "
+        f"{run_file}'s maximum-posterior values",
+        f"({os.path.basename(results_folder)}).",
+    ])
+
+    # Fail here, not at the start of the next run, if the edit broke it.
+    commentjson.loads(text)
+
+    output_path = os.path.join(results_folder, "next_runprops.txt")
     with open(output_path, "w") as f:
-        commentjson.dump(frozen, f, indent=4)
+        f.write(text)
     return output_path
 
 
@@ -83,23 +173,24 @@ def plot_and_write(sampler, run_config, results_folder):
         chain_plotter.plot_diagnostics_from_sampler(sampler, param_names, results_folder=results_folder)
 
     # Compare where burn-in left off against the chain's last posterior
-    # sample, rather than only ever looking at the last one (as
-    # write_frozen_runprops below does) -- shows what sampling itself
-    # achieved, without burn-in's own (usually much larger) movement
-    # dominating the comparison.
+    # sample, rather than only ever looking at the last one -- shows what
+    # sampling itself achieved, without burn-in's own (usually much larger)
+    # movement dominating the comparison.
     plot_posterior_result.plot_first_last_comparison(
         posteriors_path, sampler.reference_pop, run_config, sampler.det_prob_fn,
         first_params=sampler.burnin_end_params, results_folder=results_folder
     )
 
     if param_names:
+        log_probs = sampler.get_log_prob(discard=burnin_steps, flat=True)
+        best_sample = samples[np.argmax(log_probs)]
         try:
-            frozen_runprops_path = write_frozen_runprops(
-                samples[-1], param_names, results_folder
+            next_runprops_path = write_next_runprops(
+                best_sample, param_names, run_config, results_folder
             )
-            print(f"Frozen runprops written to {frozen_runprops_path}")
-        except (OSError, RuntimeError) as exc:
-            print(f"Could not write a frozen runprops: {exc}")
+            print(f"Next-run runprops written to {next_runprops_path}")
+        except (OSError, ValueError) as exc:
+            print(f"Could not write a next-run runprops: {exc}")
 
     return results_folder
 
@@ -119,8 +210,8 @@ def run(run_dir):
     a per-parameter percentile/best-fit summary table (see chain_plotter.py),
     and a first-vs-last posterior comparison plot into the run's
     results_folder, and -- if the run reports param_names -- a
-    frozen_runprops.txt snapshotting the last posterior sample as fixed
-    parameter values.
+    next_runprops.txt that a later run can use as its runprops.txt to
+    continue from this one (see write_next_runprops()).
 
     Returns the results_folder path, or None if run_config didn't resolve
     one.
