@@ -29,22 +29,22 @@ def _scale3(a, k):
     return (a[0] * k, a[1] * k, a[2] * k)
 
 
-# Mass-from-H assumptions: geometric albedo 0.1, bulk density 1 g/cm^3.
-_ALBEDO = 0.1
-_DENSITY = 1.0e12   # kg/km^3 (= 1 g/cm^3)
-_G = 6.674e-20      # km^3 kg^-1 s^-2
-# D [km] = 1329 / sqrt(p) * 10^(-H/5), so
-# GM = G * rho * (pi/6) * D^3 = _GM_H0 * 10^(-0.6 H).
-_GM_H0 = _G * _DENSITY * (math.pi / 6.0) * (1329.0 / math.sqrt(_ALBEDO)) ** 3
+_G = 6.674e-20  # km^3 kg^-1 s^-2
 
 
-def _mu_from_H(H):
+def _gm_h0(runprops):
     """
-    Gravitational parameter GM [km^3/s^2] of a body with absolute magnitude H.
+    GM [km^3/s^2] of an H = 0 sphere, from runprops' albedo and density.
 
-    Assumes a sphere with albedo _ALBEDO and density _DENSITY.
+    D [km] = 1329 / sqrt(albedo) * 10^(-H/5), so
+    GM(H) = G * rho * (pi/6) * D^3 = _gm_h0(runprops) * 10^(-0.6 H).
+    Falls back to albedo 0.1, density 1 g/cm^3 if runprops is None or
+    predates these keys.
     """
-    return _GM_H0 * 10.0 ** (-0.6 * H)
+    runprops = runprops or {}
+    albedo = runprops.get("albedo", 0.1)
+    density = runprops.get("density", 1.0) * 1.0e12  # g/cm^3 -> kg/km^3
+    return _G * density * (math.pi / 6.0) * (1329.0 / math.sqrt(albedo)) ** 3
 
 class Population():
     def __init__(self, reference_pop, init_params=None, detection_prob = None, runprops=None):
@@ -54,6 +54,7 @@ class Population():
         # expressions population_simulator() needs per TNO.
         self.moonlike = init_params
         self.runprops = runprops
+        self.gm_h0 = _gm_h0(runprops)
         self.wide = TNO_sim_lib.draw_wide_params(runprops)
         self.ref_binary_frac = self.moonlike['fb'] + self.wide['fb']
 
@@ -162,8 +163,8 @@ class Population():
         xyz_earth : array-like, shape (3,)
             Geocentric J2000 ecliptic position of the primary TNO in km.
         H : float
-            Absolute magnitude of the primary; sets the system mass via
-            _mu_from_H (albedo 0.1, density 1 g/cm^3).
+            Absolute magnitude of the primary; sets the system mass using
+            runprops' albedo and density (see _gm_h0).
 
         Returns
         -------
@@ -179,7 +180,7 @@ class Population():
         mu_rad = math.radians(mu)
 
         # mu_grav only affects period, not position at t=T0
-        mu_grav = _mu_from_H(H)
+        mu_grav = self.gm_h0 * 10.0 ** (-0.6 * H)
 
         rp   = a * (1.0 - e)   # perifocal distance (km)
         elts = [rp, e, i_rad, Om_rad, w_rad, mu_rad, 0.0, mu_grav]
@@ -278,7 +279,8 @@ class Population():
         result['detected']    = detected
 
 class Pluto(Population):
-    def __init__(self, reference_pop=None):
+    def __init__(self, reference_pop=None, runprops=None):
+        self.gm_h0 = _gm_h0(runprops)
         self.moonlike = 0.9
         self.wide = 0.0
         self.ref_binary_frac = self.moonlike + self.wide

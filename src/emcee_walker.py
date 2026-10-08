@@ -130,7 +130,7 @@ def emcee_walker(run_config=None):
 
         if ref_pop_name == "Pluto":
             print("Using synthetic Pluto population as reference")
-            reference_pop = Pluto()
+            reference_pop = Pluto(runprops=param_config)
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
         # Precomputed once, here, before reference_pop is ever pickled into
@@ -267,7 +267,7 @@ def log_posterior(theta, reference_pop, det_prob, param_config, verbose = False)
     return lp + ll_count, ll_count
 
 def run_once():
-    reference_pop = Pluto()
+    reference_pop = Pluto(runprops=FALLBACK_RUNPROPS)
     moon_params = draw_moon_params(FALLBACK_RUNPROPS)
     ll_count = get_log_likelihood(moon_params, reference_pop, fallback_det_prob, FALLBACK_RUNPROPS, True)
     simulated_pop = Population(reference_pop.popu, moon_params, fallback_det_prob, runprops=FALLBACK_RUNPROPS)

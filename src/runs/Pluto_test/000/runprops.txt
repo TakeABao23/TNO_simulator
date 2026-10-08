@@ -21,6 +21,11 @@
     "nsteps" : 50,			# number of steps for sampling after burn in
     "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
 
+    # Primary mass from H: sphere with this geometric albedo and bulk
+    # density, D [km] = 1329 / sqrt(albedo) * 10^(-H/5).
+    "albedo" : 0.1,
+    "density" : 1.0,			# g/cm^3
+
     # Moon-like binary parameters: names (fixes the structured-array field
     # order and emcee's flat theta order) and one draw expression per name,
     # each eval'd with `rng` (a numpy Generator) in scope.
