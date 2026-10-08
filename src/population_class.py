@@ -28,6 +28,24 @@ def _sub3(a, b):
 def _scale3(a, k):
     return (a[0] * k, a[1] * k, a[2] * k)
 
+
+# Mass-from-H assumptions: geometric albedo 0.1, bulk density 1 g/cm^3.
+_ALBEDO = 0.1
+_DENSITY = 1.0e12   # kg/km^3 (= 1 g/cm^3)
+_G = 6.674e-20      # km^3 kg^-1 s^-2
+# D [km] = 1329 / sqrt(p) * 10^(-H/5), so
+# GM = G * rho * (pi/6) * D^3 = _GM_H0 * 10^(-0.6 H).
+_GM_H0 = _G * _DENSITY * (math.pi / 6.0) * (1329.0 / math.sqrt(_ALBEDO)) ** 3
+
+
+def _mu_from_H(H):
+    """
+    Gravitational parameter GM [km^3/s^2] of a body with absolute magnitude H.
+
+    Assumes a sphere with albedo _ALBEDO and density _DENSITY.
+    """
+    return _GM_H0 * 10.0 ** (-0.6 * H)
+
 class Population():
     def __init__(self, reference_pop, init_params=None, detection_prob = None, runprops=None):
         # Initial Parameters -- init_params/self.wide are numpy structured
@@ -107,7 +125,7 @@ class Population():
                 orb_names = self.runprops["orb_param_names"]
                 orb = TNO_sim_lib.draw_orbit_params(self.moonlike, self.runprops)
                 orbital_params = [orb[name] for name in orb_names]
-                sep, pa = self.compute_separation(xyz_earth, orbital_params)
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
                 dm = abs(np.random.normal(self.moonlike['mdm'], self.moonlike['sdm']))
             else:
                 binary_type = 'wide'
@@ -118,13 +136,13 @@ class Population():
                 orb_names = self.runprops["orb_param_names"]
                 orb = TNO_sim_lib.draw_orbit_params(self.moonlike, self.runprops)
                 orbital_params = [orb[name] for name in orb_names]
-                sep, pa = self.compute_separation(xyz_earth, orbital_params)
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
                 dm = abs(np.random.normal(0.0, self.wide['sdm']))
 
             results.append({'Name': name, 'H': H, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
         return pd.DataFrame(results)
 
-    def compute_separation(self, xyz_earth, orbital_params):
+    def compute_separation(self, xyz_earth, orbital_params, H):
         """
         Compute the sky-plane separation and position angle of a TNO binary.
 
@@ -143,6 +161,9 @@ class Population():
             mu  [deg]  mean anomaly at epoch
         xyz_earth : array-like, shape (3,)
             Geocentric J2000 ecliptic position of the primary TNO in km.
+        H : float
+            Absolute magnitude of the primary; sets the system mass via
+            _mu_from_H (albedo 0.1, density 1 g/cm^3).
 
         Returns
         -------
@@ -157,11 +178,9 @@ class Population():
         Om_rad  = math.radians(Om)
         mu_rad = math.radians(mu)
 
-        # mu_grav only affects period, not position at t=T0, so value is arbitrary here
-        G        = 6.674e-20   # km^3 kg^-1 s^-2
-        mu_grav  = G * 1.0e18  # representative TNO system mass in kg
-        # TODO: calculate mu_grav from h
-        
+        # mu_grav only affects period, not position at t=T0
+        mu_grav = _mu_from_H(H)
+
         rp   = a * (1.0 - e)   # perifocal distance (km)
         elts = [rp, e, i_rad, Om_rad, w_rad, mu_rad, 0.0, mu_grav]
         state = spice.conics(elts, 0.0)
@@ -312,13 +331,13 @@ class Pluto(Population):
                 binary_type = 'moonlike'
                 mea = np.random.uniform(0.0, 360.0)
                 orbital_params = (a, e, i, aop, lan, mea)
-                sep, pa = self.compute_separation(xyz_earth, orbital_params)
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
                 dm = abs(np.random.normal(dm, dm_std))
             else:
                 binary_type = 'wide'
                 mea = np.random.uniform(0.0, 360.0)
                 orbital_params = (a, e, i, aop, lan, mea)
-                sep, pa = self.compute_separation(xyz_earth, orbital_params)
+                sep, pa = self.compute_separation(xyz_earth, orbital_params, H)
                 dm = abs(np.random.normal(dm, dm_std))
 
             results.append({'Name': name, 'x': x, 'y': y, 'z': z, 'H': H, 'binary_type': binary_type, 'sep': sep, 'pa': pa, 'dm': dm, 'params': orbital_params})
