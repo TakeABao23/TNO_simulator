@@ -1,0 +1,82 @@
+{
+    # Initialization properties
+    "first_run": true,
+    "date": "autogenerate",
+    "time": "autogenerate",
+    "user": "autogenerate",
+    "TNO_simulator commit hash": "autogenerate",
+    "RunGoal" : "Test code using the results of run 001",
+    "verbose" : true,
+
+    # Run properties
+    "objectname" : "Pluto_test",
+    "run_file": "002",
+    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population; otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
+    "det_prob": "lambda sep, dm: not (sep < 0.1 or (sep < 0.5 and dm > 12.5 * sep - 1.25) or (sep >= 0.5 and dm > 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
+
+    "nwalkers" : 100,			# number of walkers in emcee ensemble
+    "ndim" : 8,				# length of moon_param_names; number of free population-level parameters
+    "nburnin" : 50,			# length of burn in
+    "nsteps" : 5000,			# number of steps for sampling after burn in
+    "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
+
+    # Seed the walkers from run 001's final posterior step (step 499 of
+    # posteriors.csv, one row per walker) instead of the moon_<name> draws.
+    "init_positions_file": "../../../results/Pluto_test/Pluto_test_2026-09-29_16.07.54_001/final_positions.csv",
+
+    # Moon-like binary parameters: names (fixes the structured-array field
+    # order and emcee's flat theta order) and one draw expression per name,
+    # each eval'd with `rng` (a numpy Generator) in scope. Unused while
+    # init_positions_file is set; these are run 001's best-fit values.
+    "moon_param_names": ["fb", "ka", "ae", "ke", "ai", "ki", "mdm", "sdm"],
+    "moon_fb" : "0.9631311450362451",
+    "moon_ka" : "8.619824337229746",
+    "moon_ae" : "4.775945025781444",
+    "moon_ke" : "3.6137329002000094",
+    "moon_ai" : "2.0115466956070502",
+    "moon_ki" : "4.7545354075549655",
+    "moon_mdm" : "2.983402724277966",
+    "moon_sdm" : "0.5113816322493611",
+
+    # Uniform-prior bounds per moon parameter, used by log_prior to reject
+    # e.g. a negative ka/ae/ke/ai/ki before it crashes rng.power/rng.beta.
+    # null = unbounded in that direction.
+    "param_bounds": {
+        "fb":  [0.0, 1.0],
+        "ka":  [0.1, null],
+        "ae":  [0.5, null],
+        "ke":  [0.5, null],
+        "ai":  [0.5, null],
+        "ki":  [0.5, null],
+        "mdm": [null, null],
+        "sdm": [0.1, null]
+    },
+
+    # Wide-binary parameters -- currently inert (see population_class.py:
+    # fb=0 disables the wide-binary branch entirely; ka..sdm are unused
+    # placeholders, NaN since a structured float64 array can't hold None).
+    "wide_fb" : "0.0",
+    "wide_ka" : "np.nan",
+    "wide_ae" : "np.nan",
+    "wide_ke" : "np.nan",
+    "wide_ai" : "np.nan",
+    "wide_ki" : "np.nan",
+    "wide_mdm" : "np.nan",
+    "wide_sdm" : "np.nan",
+
+    # Orbital-element distributions, one zero-arg lambda per name, eval'd
+    # with `rng` and `params` (the current moon-level hyperparameter
+    # structured record) in scope.
+    "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
+    "a" : "lambda: rng.power(params['ka']) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
+    "e" : "lambda: rng.beta(params['ae'], params['ke'])",
+    "i" : "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
+    "w" : "lambda: rng.uniform(0.0, 360.0)",
+    "Om" : "lambda: rng.uniform(0.0, 360.0)",
+    "mu" : "lambda: rng.uniform(0.0, 360.0)",
+
+    # These values are used by the code to manage runs and should not be changed by hand.
+    "chain_file": null,			# set by runprops.py when resuming from results/.../chain.h5
+    "startfromfile" : false
+}

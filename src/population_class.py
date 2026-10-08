@@ -160,7 +160,8 @@ class Population():
         # mu_grav only affects period, not position at t=T0, so value is arbitrary here
         G        = 6.674e-20   # km^3 kg^-1 s^-2
         mu_grav  = G * 1.0e18  # representative TNO system mass in kg
-
+        # TODO: calculate mu_grav from h
+        
         rp   = a * (1.0 - e)   # perifocal distance (km)
         elts = [rp, e, i_rad, Om_rad, w_rad, mu_rad, 0.0, mu_grav]
         state = spice.conics(elts, 0.0)

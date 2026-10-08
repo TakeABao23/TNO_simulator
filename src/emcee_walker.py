@@ -66,7 +66,8 @@ def emcee_walker(run_config=None):
     in that file instead of drawing fresh from the moon_<name> expressions
     -- e.g. to resume from a previous run's end-of-burn-in snapshot
     (results_folder/burnin_end.csv, written right after burn-in below)
-    instead of re-paying for burn-in every time.
+    instead of re-paying for burn-in every time, or from its end-of-run
+    snapshot (results_folder/final_positions.csv, written after sampling).
 
     If `run_config` has a `det_prob` eval'able lambda expression (same
     pattern as the moon/wide/orb_param_names draw expressions), it's used
@@ -152,7 +153,13 @@ def emcee_walker(run_config=None):
             burnin_end_path = save_walker_positions(state.coords, param_config, results_folder)
             print(f"End-of-burn-in walker positions written to {burnin_end_path}")
         print(f"Sampling: {step_count} steps x {nwalkers} walkers")
-        sampler.run_mcmc(state, step_count, progress=True)
+        final_state = sampler.run_mcmc(state, step_count, progress=True)
+        if results_folder:
+            # Same format as burnin_end.csv, so a later run can point its
+            # init_positions_file here to continue from this run's end.
+            final_path = save_walker_positions(final_state.coords, param_config, results_folder,
+                                               filename="final_positions.csv")
+            print(f"Final walker positions written to {final_path}")
         # Stashed so callers (e.g. run_emcee_walker.py) can plot posterior
         # results against the same reference population/detection function the
         # run actually used, without re-deriving them from runprops themselves.
