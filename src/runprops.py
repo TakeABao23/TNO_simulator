@@ -220,12 +220,12 @@ FALLBACK_RUNPROPS = {
     "wide_mdm": "np.nan",
     "wide_sdm": "np.nan",
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a": "lambda: rng.power(params['ka']) * 20000",  # scale raised from 10000 km, see runs/Pluto_test/000/runprops.txt's "a" comment
-    "e": "lambda: rng.beta(params['ae'], params['ke'])",
-    "i": "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
-    "w": "lambda: rng.uniform(0.0, 360.0)",
-    "Om": "lambda: rng.uniform(0.0, 360.0)",
-    "mu": "lambda: rng.uniform(0.0, 360.0)",
+    "a": "lambda n: rng.power(params['ka'], n) * 20000",  # scale raised from 10000 km, see runs/Pluto_test/000/runprops.txt's "a" comment
+    "e": "lambda n: rng.beta(params['ae'], params['ke'], n)",
+    "i": "lambda n: 180.0 * rng.beta(params['ai'], params['ki'], n)",
+    "w": "lambda n: rng.uniform(0.0, 360.0, n)",
+    "Om": "lambda n: rng.uniform(0.0, 360.0, n)",
+    "mu": "lambda n: rng.uniform(0.0, 360.0, n)",
     "param_bounds": {
         "fb": [0.0, 1.0], "ka": [0.1, None], "ae": [0.5, None], "ke": [0.5, None],
         "ai": [0.5, None], "ki": [0.5, None], "mdm": [None, None], "sdm": [0.1, None],
@@ -234,11 +234,8 @@ FALLBACK_RUNPROPS = {
 
 
 def fallback_det_prob(sep, dm):
-    if sep < 0.1:
-        return False
-    elif sep < 0.5:
-        if dm > 12.5 * sep - 1.25:
-            return False
-    elif dm > 5:
-        return False
-    return True
+    """Elementwise over arrays (or scalars): True where detectable."""
+    sep = np.asarray(sep)
+    dm = np.asarray(dm)
+    return ((sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25))
+            & ((sep < 0.5) | (dm <= 5)))

@@ -20,10 +20,14 @@ import pandas as pd
 SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SRC_DIR)
 
+import spiceypy as spice  # noqa: E402
+
 import voxel_grid  # noqa: E402
 from runprops import FALLBACK_RUNPROPS, fallback_det_prob  # noqa: E402
 from emcee_walker import Pluto, get_log_likelihood  # noqa: E402
-from TNO_sim_lib import moon_params_from_array  # noqa: E402
+from population_class import Population  # noqa: E402
+from TNO_sim_lib import (moon_params_from_array, draw_orbit_params,  # noqa: E402
+                         load_det_prob)
 
 # theta order: fb, ka, ae, ke, ai, ki, mdm, sdm
 # Run 002's best fit, from the old (fixed-orientation, no-detection,
@@ -141,6 +145,74 @@ class TestPlutoReference(unittest.TestCase):
     def test_every_row_has_position(self):
         cols = ["x", "y", "z", "H"]
         self.assertFalse(self.ref.popu[cols].isna().any().any())
+
+
+def _sep_pa_spice(xyz, orb):
+    """Scalar reference: spice.conics + sky projection, one system."""
+    a, e, i, w, Om, mu = orb
+    elts = [a * (1.0 - e), e, np.radians(i), np.radians(Om), np.radians(w),
+            np.radians(mu), 0.0, 1.0]
+    off = np.array(spice.conics(elts, 0.0)[:3])
+    dist = np.linalg.norm(xyz)
+    los = xyz / dist
+    sky = off - los * np.dot(off, los)
+    sep = np.degrees(np.linalg.norm(sky) / dist) * 3600.0
+    north = np.array([0.0, 0.0, 1.0]) - los * los[2]
+    north /= np.linalg.norm(north)
+    east = np.cross(north, los)
+    east /= np.linalg.norm(east)
+    pa = np.degrees(np.arctan2(np.dot(sky, east), np.dot(sky, north))) % 360.0
+    return sep, pa
+
+
+class TestComputeSeparation(unittest.TestCase):
+    """The vectorized Kepler/sky projection must match spice.conics."""
+
+    def test_matches_spice(self):
+        r = np.random.default_rng(0)
+        n = 2000
+        xyz = r.normal(0.0, 1.0, (n, 3)) * 5e9
+        orb = np.column_stack([
+            r.uniform(1e3, 1e5, n),
+            np.concatenate([r.uniform(0.0, 0.999, n - 2), [0.0, 0.9999]]),
+            r.uniform(0.0, 180.0, n), r.uniform(0.0, 360.0, n),
+            r.uniform(0.0, 360.0, n), r.uniform(0.0, 360.0, n)])
+        sep, pa = Population.compute_separation(None, xyz, orb)
+        ref = np.array([_sep_pa_spice(x, o) for x, o in zip(xyz, orb)])
+        np.testing.assert_allclose(sep, ref[:, 0], rtol=1e-8, atol=1e-12)
+        dpa = (pa - ref[:, 1] + 180.0) % 360.0 - 180.0
+        np.testing.assert_allclose(dpa, 0.0, atol=1e-6)
+
+
+class TestVectorizedInputs(unittest.TestCase):
+
+    def test_det_prob_matches_scalar(self):
+        r = np.random.default_rng(1)
+        sep = r.uniform(0.0, 1.0, 5000)
+        dm = r.uniform(0.0, 8.0, 5000)
+
+        def scalar(s, d):
+            return not (s < 0.1 or (s < 0.5 and d > 12.5 * s - 1.25)
+                        or (s >= 0.5 and d > 5))
+
+        expected = np.array([scalar(s, d) for s, d in zip(sep, dm)])
+        np.testing.assert_array_equal(fallback_det_prob(sep, dm), expected)
+        # Legacy scalar-only runprops expression still works (looped).
+        legacy = load_det_prob({"det_prob": "lambda sep, dm: not (sep < 0.1 "
+                                "or (sep < 0.5 and dm > 12.5 * sep - 1.25) "
+                                "or (sep >= 0.5 and dm > 5))"})
+        np.testing.assert_array_equal(legacy(sep, dm), expected)
+
+    def test_legacy_zero_arg_orbit_lambda(self):
+        cfg = dict(FALLBACK_RUNPROPS)
+        cfg["w"] = "lambda: rng.uniform(0.0, 360.0)"
+        cfg["e"] = "lambda n: 0.1"
+        params = moon_params_from_array(np.array(THETA_TRUTH), cfg)
+        orb = draw_orbit_params(params, cfg, 1000)
+        self.assertEqual(orb["w"].shape, (1000,))
+        self.assertGreater(np.std(orb["w"]), 50.0)
+        np.testing.assert_array_equal(orb["e"], 0.1)
+        self.assertEqual(orb["a"].shape, (1000,))
 
 
 def report(ks=(1, 10, 50)):

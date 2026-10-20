@@ -17,6 +17,7 @@ import csv
 import os
 
 import commentjson
+import numpy as np
 
 import chain_plotter
 from population_class import Population, Pluto
@@ -24,14 +25,11 @@ from population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_compari
 
 
 def det_prob(sep, dm):
-    if sep < 0.1:
-        return False
-    elif sep < 0.5:
-        if dm > 12.5 * sep - 1.25:
-            return False
-    elif dm > 5:
-        return False
-    return True
+    """Elementwise over arrays (or scalars): True where detectable."""
+    sep = np.asarray(sep)
+    dm = np.asarray(dm)
+    return ((sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25))
+            & ((sep < 0.5) | (dm <= 5)))
 
 
 def load_first_and_last_sample(posteriors_path):

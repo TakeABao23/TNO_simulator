@@ -83,27 +83,57 @@ def draw_wide_params(runprops):
     return _draw_record(names, exprs)
 
 
-def draw_orbit_params(moon_params, runprops):
+def _draw_n(fn, n):
     """
-    Draw one fresh set of orbital elements (a, e, i, w, Om, mu) for a single
-    TNO, from runprops' orbital-element lambda expressions -- each is
-    eval'd with `params` bound to `moon_params` (the walker's current
-    moon-level hyperparameters, e.g. so `a`'s expression can reference
-    params['ka']), then immediately called to draw one sample.
+    Call a runprops orbital-element lambda for `n` draws at once.
 
-    Returns a plain dict (name -> value), not a numpy structured scalar --
-    unlike moon_params/wide_params (drawn once per Population, then
-    round-tripped through moon_params_to_array/moon_params_from_array as
-    emcee's flat theta, where the structured-array dtype earns its keep),
-    this is drawn once per binary and immediately unpacked by its only
-    caller (population_class.py's `[orb[name] for name in orb_names]`) --
-    plain dict field access works identically there, without paying
-    numpy's structured-dtype construction overhead (isinstance/dtype
-    validation) on every single draw.
+    A one-argument lambda (e.g. "lambda n: rng.uniform(0.0, 360.0, n)") is
+    called once with n and must return n values (or a scalar, broadcast to
+    n). A legacy zero-argument lambda (e.g. "lambda: rng.uniform(0.0,
+    360.0)", as in older runs' runprops.txt) is still supported, but is
+    called n times in a Python loop -- correct, just not vectorized.
+    """
+    if fn.__code__.co_argcount == 0:
+        return np.fromiter((fn() for _ in range(n)), dtype=np.float64, count=n)
+    out = np.asarray(fn(n), dtype=np.float64)
+    return np.broadcast_to(out, (n,)) if out.ndim == 0 else out
+
+
+def draw_orbit_params(moon_params, runprops, n):
+    """
+    Draw `n` independent sets of orbital elements (a, e, i, w, Om, mu), one
+    per binary, from runprops' orbital-element lambda expressions -- each
+    is eval'd with `params` bound to `moon_params` (the walker's current
+    moon-level hyperparameters, e.g. so `a`'s expression can reference
+    params['ka']), then called once for all n draws (see _draw_n()).
+
+    Returns a dict name -> float64 array of shape (n,).
     """
     names = runprops["orb_param_names"]
     namespace = {"rng": rng, "np": np, "params": moon_params}
-    return {name: eval(_compile_expr(runprops[name]), namespace)() for name in names}
+    return {name: _draw_n(eval(_compile_expr(runprops[name]), namespace), n)
+            for name in names}
+
+
+def call_det_prob(fn, sep, dm):
+    """
+    Evaluate a det_prob function on arrays of sep/dm. Tries a single
+    vectorized call first; a scalar-only function (e.g. one using
+    `if`/`and`/`not`, which raise on arrays) falls back to a per-element
+    loop.
+    """
+    sep = np.asarray(sep, dtype=np.float64)
+    dm = np.asarray(dm, dtype=np.float64)
+    try:
+        out = np.asarray(fn(sep, dm), dtype=np.float64)
+        if out.ndim == 0:
+            return np.full(sep.shape, out)
+        if out.shape == sep.shape:
+            return out
+    except (ValueError, TypeError):
+        pass
+    return np.fromiter((fn(s, d) for s, d in zip(sep, dm)),
+                       dtype=np.float64, count=sep.size)
 
 
 class _RunpropsDetProb:
@@ -117,13 +147,16 @@ class _RunpropsDetProb:
     source expression (via __getstate__/__setstate__) and re-evals it once
     on the receiving end (worker unpickling, or this process at
     construction), not on every call -- __call__ itself never re-evals.
+
+    Called with arrays of sep/dm (see Population.apply_detection()); a
+    scalar-only expression still works, via call_det_prob()'s loop.
     """
     def __init__(self, expr):
         self.expr = expr
         self._fn = eval(_compile_expr(expr), {"rng": rng, "np": np})
 
     def __call__(self, sep, dm):
-        return self._fn(sep, dm)
+        return call_det_prob(self._fn, sep, dm)
 
     def __getstate__(self):
         return self.expr
@@ -140,8 +173,9 @@ class _RunpropsDetProb:
 def load_det_prob(runprops):
     """
     Build the detection-probability callable from runprops' `det_prob`
-    eval'able lambda expression string, (sep, dm) -> bool -- same
-    runprops-driven pattern as the orb_param_names lambdas, so a run's own
+    eval'able lambda expression string, (sep, dm) -> bool or probability,
+    elementwise over arrays -- same runprops-driven pattern as the
+    orb_param_names lambdas, so a run's own
     runprops.txt is a complete, reproducible record of its detection
     function too, not just its moon/wide/orbital parameter distributions.
 
