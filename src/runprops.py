@@ -227,8 +227,8 @@ FALLBACK_RUNPROPS = {
     "Om": "lambda n: rng.uniform(0.0, 360.0, n)",
     "mu": "lambda n: rng.uniform(0.0, 360.0, n)",
     "param_bounds": {
-        "fb": [0.0, 1.0], "ka": [0.1, None], "ae": [0.5, None], "ke": [0.5, None],
-        "ai": [0.5, None], "ki": [0.5, None], "mdm": [None, None], "sdm": [0.1, None],
+        "fb": [0.0, 1.0], "ka": [0.1, 1.0e4], "ae": [0.5, 1.0e4], "ke": [0.5, 1.0e4],
+        "ai": [0.5, 1.0e4], "ki": [0.5, 1.0e4], "mdm": [None, None], "sdm": [0.1, None],
     },
 }
 

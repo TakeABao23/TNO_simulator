@@ -49,14 +49,18 @@
 
     # Uniform-prior bounds per moon parameter, used by log_prior to reject
     # e.g. a negative ka/ae/ke/ai/ki before it crashes rng.power/rng.beta.
-    # null = unbounded in that direction.
+    # null = unbounded in that direction. ka/ae/ke/ai/ki are capped at 1e4:
+    # past a few thousand the distributions are narrower than the data can
+    # resolve (a zero-spread reference like Pluto's otherwise lets walkers
+    # drift to ~1e13). Posteriors piling up at the cap mean only a lower
+    # limit is constrained, i.e. consistent with zero spread.
     "param_bounds": {
         "fb":  [0.0, 1.0],
-        "ka":  [0.1, null],
-        "ae":  [0.5, null],
-        "ke":  [0.5, null],
-        "ai":  [0.5, null],
-        "ki":  [0.5, null],
+        "ka":  [0.1, 1.0e4],
+        "ae":  [0.5, 1.0e4],
+        "ke":  [0.5, 1.0e4],
+        "ai":  [0.5, 1.0e4],
+        "ki":  [0.5, 1.0e4],
         "mdm": [null, null],
         "sdm": [0.1, null]
     },
