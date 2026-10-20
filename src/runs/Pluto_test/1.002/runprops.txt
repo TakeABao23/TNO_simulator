@@ -5,13 +5,13 @@
     "time": "autogenerate",
     "user": "autogenerate",
     "TNO_simulator commit hash": "autogenerate",
-    "RunGoal" : "Fresh start with the negative-binomial voxel likelihood (n_realizations=10) and the fixed Pluto reference (random orientation, detection applied, loop-variable inclination bug fixed)",
+    "RunGoal" : "Tightening bounds for our parameters",
     "verbose" : true,
 
     # Run properties
     "objectname" : "Pluto_test",
-    "run_file": "003",
-    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "run_file": "1.002",
+    "reference_pop": "Pluto_spread",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
     "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
     "det_prob": "lambda sep, dm: (sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25)) & ((sep < 0.5) | (dm <= 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
 
@@ -49,18 +49,20 @@
 
     # Uniform-prior bounds per moon parameter, used by log_prior to reject
     # e.g. a negative ka/ae/ke/ai/ki before it crashes rng.power/rng.beta.
-    # null = unbounded in that direction. ka/ae/ke/ai/ki are capped at 1e4:
-    # past a few thousand the distributions are narrower than the data can
-    # resolve (a zero-spread reference like Pluto's otherwise lets walkers
-    # drift to ~1e13). Posteriors piling up at the cap mean only a lower
-    # limit is constrained, i.e. consistent with zero spread.
+    # null = unbounded in that direction. ka/ae/ke/ai/ki are capped at 200:
+    # the likelihood is already flat by ~20-100 (narrower distributions
+    # than the data can resolve; a zero-spread reference like Pluto's
+    # otherwise lets walkers drift to ~1e13). Posteriors piling up at the
+    # cap mean only a lower limit is constrained, i.e. consistent with
+    # zero spread -- but that limit scales with the cap, so don't quote it
+    # as a measurement.
     "param_bounds": {
         "fb":  [0.0, 1.0],
-        "ka":  [0.1, 1.0e4],
-        "ae":  [0.5, 1.0e4],
-        "ke":  [0.5, 1.0e4],
-        "ai":  [0.5, 1.0e4],
-        "ki":  [0.5, 1.0e4],
+        "ka":  [0.1, 200.0],
+        "ae":  [0.5, 200.0],
+        "ke":  [0.5, 200.0],
+        "ai":  [0.5, 200.0],
+        "ki":  [0.5, 200.0],
         "mdm": [null, null],
         "sdm": [0.1, null]
     },

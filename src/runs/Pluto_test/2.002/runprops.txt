@@ -5,12 +5,12 @@
     "time": "autogenerate",
     "user": "autogenerate",
     "TNO_simulator commit hash": "autogenerate",
-    "RunGoal" : "Test full common random numbers (per-object uniforms through inverse CDFs): 008 reseeded the samplers instead, which left log-L jagged in fb/ke (acceptance 0.074, 7 stuck walkers); compare acceptance and tau against 007/008",
+    "RunGoal" : "Continue from run 2.001 (Pluto_test_2026-10-20_14.53.35_2.001) for 5000 steps (~50 tau at 2.001's tau 62-78, with headroom for tau growing) toward a converged chain with full CRN",
     "verbose" : true,
 
     # Run properties
     "objectname" : "Pluto_test",
-    "run_file": "009",
+    "run_file": "2.002",
     "reference_pop": "Pluto_spread",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
     "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
     "det_prob": "lambda sep, dm: (sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25)) & ((sep < 0.5) | (dm <= 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
@@ -18,10 +18,10 @@
     "nwalkers" : 38,			# number of walkers in emcee ensemble; 2 x (mpiexec -n 20 minus 1) workers, so each half-ensemble update is one round
     "ndim" : 8,				# length of moon_param_names; number of free population-level parameters
     "nburnin" : 200,			# length of burn in
-    "nsteps" : 1000,			# number of steps for sampling after burn in
+    "nsteps" : 5000,			# number of steps for sampling after burn in
     "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
-    # Added by run 006's write_next_runprops()
-    "init_positions_file": "../../../results/Pluto_test/Pluto_test_2026-10-20_14.46.20_008/final_positions.csv",
+    # Added by run 1.003's write_next_runprops()
+    "init_positions_file": "../../../results/Pluto_test/Pluto_test_2026-10-20_14.53.35_2.001/final_positions.csv",
 
     # Primary mass from H: sphere with this geometric albedo and bulk
     # density, D [km] = 1329 / sqrt(albedo) * 10^(-H/5).
@@ -40,26 +40,26 @@
     # Moon-like binary parameters: names (fixes the structured-array field
     # order and emcee's flat theta order) and one draw expression per name,
     # each eval'd with `rng` (a numpy Generator) in scope. Unused while
-    # init_positions_file is set; these are run 008's maximum-posterior values
-    # (Pluto_test_2026-10-20_14.46.20_008).
+    # init_positions_file is set; these are run 2.001's maximum-posterior values
+    # (Pluto_test_2026-10-20_14.53.35_2.001).
     "moon_param_names": ["fb", "log_ka", "log_ae", "log_ke", "log_ai", "log_ki", "mdm", "sdm"],
-    "moon_fb" : "0.9220356043517265",
-    "moon_log_ka" : "0.8890527007627052",
-    "moon_log_ae" : "0.6713310222818174",
-    "moon_log_ke" : "1.588780544706241",
-    "moon_log_ai" : "2.26349220140595",
-    "moon_log_ki" : "1.9955031448627154",
-    "moon_mdm" : "1.914962925463764",
-    "moon_sdm" : "0.19105537928438185",
+    "moon_fb" : "0.8700890132346477",
+    "moon_log_ka" : "0.9395344751574765",
+    "moon_log_ae" : "1.219781033854128",
+    "moon_log_ke" : "2.279931187505399",
+    "moon_log_ai" : "1.3022264435986521",
+    "moon_log_ki" : "1.2544405398362253",
+    "moon_mdm" : "1.91071905077275",
+    "moon_sdm" : "0.1765888622651382",
 
     # Uniform-prior bounds per moon parameter, used by log_prior. The log_
-    # bounds are 005's linear ones in log10: ka in [0.1, 200], ae/ke/ai/ki
+    # bounds are 1.002's linear ones in log10: ka in [0.1, 200], ae/ke/ai/ki
     # in [0.5, 200]. null = unbounded in that direction. Capped at 200:
     # the likelihood is already flat by ~20-100 (narrower distributions
     # than the data can resolve; a zero-spread reference like Pluto's
     # otherwise lets walkers drift to ~1e13). Posteriors piling up at the
     # cap mean only a lower limit is constrained, i.e. consistent with
-    # zero spread. In log10 the cap matters much less than in 005 (raising
+    # zero spread. In log10 the cap matters much less than in 1.002 (raising
     # it to 1e4 would move the edge by only 1.7), but a lower limit still
     # depends on it somewhat.
     "param_bounds": {
