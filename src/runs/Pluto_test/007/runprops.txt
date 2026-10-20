@@ -21,7 +21,7 @@
     "nsteps" : 10000,			# number of steps for sampling after burn in
     "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
     # Added by run 006's write_next_runprops()
-    "init_positions_file": "../../../results/Pluto_test/Pluto_test_2026-10-20_14.20.12_006/final_positions.csv",
+    "init_positions_file": "../../../results/Pluto_test/pre-crn/Pluto_test_2026-10-20_14.20.12_006/final_positions.csv",
 
     # Primary mass from H: sphere with this geometric albedo and bulk
     # density, D [km] = 1329 / sqrt(albedo) * 10^(-H/5).

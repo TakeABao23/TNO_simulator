@@ -1,0 +1,103 @@
+{
+    # Initialization properties
+    "first_run": true,
+    "date": "autogenerate",
+    "time": "autogenerate",
+    "user": "autogenerate",
+    "TNO_simulator commit hash": "autogenerate",
+    "RunGoal" : "Test common random numbers (crn_seed): continue from run 007 (Pluto_test_2026-10-20_14.27.19_007), otherwise identical, and compare acceptance fraction (007: 0.094) and tau (007: 354-539)",
+    "verbose" : true,
+
+    # Run properties
+    "objectname" : "Pluto_test",
+    "run_file": "008",
+    "reference_pop": "Pluto_spread",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
+    "det_prob": "lambda sep, dm: (sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25)) & ((sep < 0.5) | (dm <= 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
+
+    "nwalkers" : 38,			# number of walkers in emcee ensemble; 2 x (mpiexec -n 20 minus 1) workers, so each half-ensemble update is one round
+    "ndim" : 8,				# length of moon_param_names; number of free population-level parameters
+    "nburnin" : 200,			# length of burn in
+    "nsteps" : 1000,			# number of steps for sampling after burn in
+    "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
+    # Added by run 006's write_next_runprops()
+    "init_positions_file": "../../../results/Pluto_test/pre-crn/Pluto_test_2026-10-20_14.27.19_007/final_positions.csv",
+
+    # Primary mass from H: sphere with this geometric albedo and bulk
+    # density, D [km] = 1329 / sqrt(albedo) * 10^(-H/5).
+    "albedo" : 0.1,
+    "density" : 1.0,			# g/cm^3
+
+    # Likelihood: each evaluation simulates every reference TNO
+    # n_realizations (K) times and scores voxels with a negative binomial
+    # that marginalizes over that simulation noise (see voxel_grid.py).
+    # Log-L std at fixed params ~ 1/sqrt(K); cost ~ K. Check with
+    # `python tests/test_likelihood.py --report`.
+    "n_realizations" : 10,
+    "voxel_prior_alpha" : 0.5,		# Gamma prior shape on each voxel's rate
+    "crn_seed" : 12345,			# common random numbers: reseed every likelihood evaluation with this, so log-L is deterministic in theta (null = fresh draws every call)
+
+    # Moon-like binary parameters: names (fixes the structured-array field
+    # order and emcee's flat theta order) and one draw expression per name,
+    # each eval'd with `rng` (a numpy Generator) in scope. Unused while
+    # init_positions_file is set; these are run 007's maximum-posterior values
+    # (Pluto_test_2026-10-20_14.27.19_007).
+    "moon_param_names": ["fb", "log_ka", "log_ae", "log_ke", "log_ai", "log_ki", "mdm", "sdm"],
+    "moon_fb" : "0.9281055266279765",
+    "moon_log_ka" : "0.8696850694702022",
+    "moon_log_ae" : "0.5378495292345311",
+    "moon_log_ke" : "1.6912936899142166",
+    "moon_log_ai" : "1.9412545479368044",
+    "moon_log_ki" : "1.8067774393950118",
+    "moon_mdm" : "1.889089175553523",
+    "moon_sdm" : "0.2511825008341745",
+
+    # Uniform-prior bounds per moon parameter, used by log_prior. The log_
+    # bounds are 005's linear ones in log10: ka in [0.1, 200], ae/ke/ai/ki
+    # in [0.5, 200]. null = unbounded in that direction. Capped at 200:
+    # the likelihood is already flat by ~20-100 (narrower distributions
+    # than the data can resolve; a zero-spread reference like Pluto's
+    # otherwise lets walkers drift to ~1e13). Posteriors piling up at the
+    # cap mean only a lower limit is constrained, i.e. consistent with
+    # zero spread. In log10 the cap matters much less than in 005 (raising
+    # it to 1e4 would move the edge by only 1.7), but a lower limit still
+    # depends on it somewhat.
+    "param_bounds": {
+        "fb":  [0.0, 1.0],
+        "log_ka":  [-1.0, 2.30103],
+        "log_ae":  [-0.30103, 2.30103],
+        "log_ke":  [-0.30103, 2.30103],
+        "log_ai":  [-0.30103, 2.30103],
+        "log_ki":  [-0.30103, 2.30103],
+        "mdm": [null, null],
+        "sdm": [0.1, null]
+    },
+
+    # Wide-binary parameters -- currently inert (see population_class.py:
+    # fb=0 disables the wide-binary branch entirely; log_ka..sdm are unused
+    # placeholders, NaN since a structured float64 array can't hold None).
+    "wide_fb" : "0.0",
+    "wide_log_ka" : "np.nan",
+    "wide_log_ae" : "np.nan",
+    "wide_log_ke" : "np.nan",
+    "wide_log_ai" : "np.nan",
+    "wide_log_ki" : "np.nan",
+    "wide_mdm" : "np.nan",
+    "wide_sdm" : "np.nan",
+
+    # Orbital-element distributions, one lambda per name taking n (the
+    # number of draws) and returning n values, eval'd
+    # with `rng` and `params` (the current moon-level hyperparameter
+    # structured record) in scope.
+    "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
+    "a" : "lambda n: rng.power(10**params['log_ka'], n) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
+    "e" : "lambda n: rng.beta(10**params['log_ae'], 10**params['log_ke'], n)",
+    "i" : "lambda n: 180.0 * rng.beta(10**params['log_ai'], 10**params['log_ki'], n)",
+    "w" : "lambda n: rng.uniform(0.0, 360.0, n)",
+    "Om" : "lambda n: rng.uniform(0.0, 360.0, n)",
+    "mu" : "lambda n: rng.uniform(0.0, 360.0, n)",
+
+    # These values are used by the code to manage runs and should not be changed by hand.
+    "chain_file": null,			# set by runprops.py when resuming from results/.../chain.h5
+    "startfromfile" : false
+}
