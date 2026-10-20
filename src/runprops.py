@@ -102,6 +102,8 @@ def load_runprops(run_dir=".", filename="runprops.txt"):
 FALLBACK_RUNPROPS = {
     "albedo": 0.1,
     "density": 1.0,
+    "n_realizations": 1,
+    "voxel_prior_alpha": 0.5,
     "moon_param_names": ["fb", "ka", "ae", "ke", "ai", "ki", "mdm", "sdm"],
     "moon_fb": "rng.uniform(0.0, 1.0)",
     "moon_ka": "rng.uniform(0.1, 5.0)",

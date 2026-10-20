@@ -2,8 +2,9 @@
 Voxel-grid likelihood: bins detected binaries into a fixed 4D grid of
 (H, delta-magnitude, separation, position-angle) and compares the observed
 and simulated per-voxel counts with an independent Poisson likelihood in
-each voxel. Replaces emcee_walker.get_log_likelihood()'s old single
-aggregate P(N_obs_total | N_sim_total) count-only term: summing every
+each voxel, marginalized over the simulation's own counting noise (see
+voxel_grid_log_likelihood). Replaces emcee_walker.get_log_likelihood()'s
+old single aggregate P(N_obs_total | N_sim_total) count-only term: summing every
 voxel's simulated count already recovers that same total-count
 information, while the per-voxel comparison now also scores the *shape*
 of the simulated population (across primary brightness, delta-magnitude,
@@ -28,7 +29,7 @@ arcsec these binaries actually span), leaving this axis unable to
 constrain the fit at all.
 """
 import numpy as np
-from scipy.stats import poisson
+from scipy.stats import nbinom
 
 # Position angle: 0-360 deg, 8 equal-width bins.
 PA_EDGES = np.linspace(0.0, 360.0, 9)
@@ -82,41 +83,58 @@ def voxel_counts(popu):
     return counts
 
 
-def voxel_grid_log_likelihood(simulated_popu, observed_popu=None, n_obs=None):
+def voxel_grid_log_likelihood(simulated_popu, observed_popu=None, n_obs=None,
+                              n_realizations=1, alpha=0.5):
     """
     Sum, over every voxel of the fixed 4D (H, dm, sep, pa) grid, the
-    Poisson log-probability of the observed count given the simulated
-    count as its rate: sum_voxel log Poisson(n_obs | mu=n_sim).
+    log-probability of the observed count given `n_realizations` (K)
+    stacked simulated realizations of the observed sample.
+
+    The per-voxel rate lambda (expected detections per one realization)
+    is not known exactly, only estimated from the K-realization count
+    n_sim ~ Poisson(K * lambda). Marginalizing Poisson(n_obs | lambda)
+    over the posterior lambda | n_sim ~ Gamma(n_sim + alpha, rate=K) gives
+    a negative binomial,
+
+        n_obs ~ NB(r = n_sim + alpha, p = K / (K + 1)),
+
+    with mean (n_sim + alpha) / K. This replaces the old plug-in
+    Poisson(n_obs | mu=n_sim) with its 1e-300 floor for empty voxels:
+    that floor cost ln(1e-300) ~ -691 per observed binary landing in a
+    voxel the (single, noisy) realization happened to leave empty, which
+    made the log-likelihood a step function of the realization's luck
+    (std ~1400 at fixed parameters) and froze the emcee walkers on lucky
+    draws. The negative binomial penalizes an empty voxel only as much as
+    K realizations' worth of evidence warrants, and its noise shrinks as
+    K grows.
 
     Parameters
     ----------
     simulated_popu : pd.DataFrame
-        Simulated, already-detected binaries (e.g.
-        simulated_pop.popu[simulated_pop.popu['detected']]). Must have
-        columns H, dm, sep, pa.
+        Simulated, already-detected binaries pooled over all K
+        realizations. Must have columns H, dm, sep, pa.
     observed_popu : pd.DataFrame, optional
         Real observed binaries, same required columns. Ignored if `n_obs`
         is given.
     n_obs : ndarray, shape GRID_SHAPE, optional
         Precomputed voxel_counts(observed_popu) -- pass this instead of
         `observed_popu` when the observed population is the same across
-        many calls (e.g. every emcee likelihood evaluation in a run: the
-        real/reference data never changes step to step), to avoid
-        re-histogramming it from scratch on every single call. Exactly one
-        of `observed_popu`/`n_obs` must be given.
+        many calls (e.g. every emcee likelihood evaluation in a run).
+        Exactly one of `observed_popu`/`n_obs` must be given.
+    n_realizations : int
+        K, the number of realizations of the observed sample pooled into
+        `simulated_popu`.
+    alpha : float
+        Gamma prior shape on each voxel's rate (0.5 ~ Jeffreys); sets how
+        heavily an empty simulated voxel is penalized.
 
     Returns
     -------
     float
-        Total log-likelihood. A voxel with n_sim == 0 uses the same
-        1e-300 floor emcee_walker.get_log_likelihood() used for its old
-        total-count term, rather than 0, so an observed count there
-        contributes a large-but-finite penalty instead of an outright
-        -inf (which would reject the walker step outright rather than
-        merely disfavoring it).
+        Total log-likelihood.
     """
     if n_obs is None:
         n_obs = voxel_counts(observed_popu)
     n_sim = voxel_counts(simulated_popu)
-    mu = np.where(n_sim > 0, n_sim, 1e-300)
-    return float(np.sum(poisson.logpmf(n_obs, mu=mu)))
+    k = float(n_realizations)
+    return float(np.sum(nbinom.logpmf(n_obs, n_sim + alpha, k / (k + 1.0))))

@@ -188,8 +188,8 @@ def emcee_walker(run_config=None):
     
 def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbose = False):
     """
-    Log-likelihood of the observed binary population given one simulated
-    realization, via voxel_grid.voxel_grid_log_likelihood(): bins detected
+    Log-likelihood of the observed binary population given
+    runprops' n_realizations (K, default 1) simulated realizations, via voxel_grid.voxel_grid_log_likelihood(): bins detected
     binaries into a fixed 4D grid of (H, delta-magnitude, separation,
     position-angle) and sums each voxel's Poisson log-probability of the
     observed count given the simulated count as its rate. Summing every
@@ -212,14 +212,24 @@ def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbo
         Detection probability function passed through to Population().
     param_config : dict
         runprops (or FALLBACK_RUNPROPS) -- supplies the moon/wide/orbital
-        parameter draw expressions Population() needs.
+        parameter draw expressions Population() needs, plus optional
+        n_realizations (K) and voxel_prior_alpha for the voxel likelihood.
 
     Returns
     -------
     float
         Total log-likelihood (see voxel_grid.voxel_grid_log_likelihood).
     """
-    simulated_pop = Population(reference_pop.popu, init_params, det_prob, runprops=param_config)
+    # K independent realizations of the whole observed sample, pooled into
+    # one Population (each reference TNO repeated K times) -- the
+    # negative-binomial voxel likelihood accounts for K, and its noise at
+    # fixed parameters shrinks as K grows (see voxel_grid).
+    n_real = param_config.get("n_realizations", 1)
+    alpha = param_config.get("voxel_prior_alpha", 0.5)
+    ref_popu = reference_pop.popu
+    if n_real > 1:
+        ref_popu = ref_popu.loc[ref_popu.index.repeat(n_real)]
+    simulated_pop = Population(ref_popu, init_params, det_prob, runprops=param_config)
     det = simulated_pop.popu[simulated_pop.popu['detected']]
 
     # reference_pop.voxel_n_obs, if emcee_walker() precomputed it (it does,
@@ -229,7 +239,8 @@ def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbo
     # correct, just not optimized) for any caller that built its own
     # reference_pop without going through emcee_walker(), e.g. tests.
     n_obs = getattr(reference_pop, "voxel_n_obs", None)
-    ll_count = voxel_grid.voxel_grid_log_likelihood(det, reference_pop.popu, n_obs=n_obs)
+    ll_count = voxel_grid.voxel_grid_log_likelihood(det, reference_pop.popu, n_obs=n_obs,
+                                                    n_realizations=n_real, alpha=alpha)
     simulated_pop.ll_count = ll_count
     '''
     if verbose is True:
