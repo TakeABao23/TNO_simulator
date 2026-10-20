@@ -283,12 +283,23 @@ class Population():
         result['detected']    = detected
 
 class Pluto(Population):
-    def __init__(self, reference_pop=None, runprops=None):
+    def __init__(self, reference_pop=None, runprops=None, detection_prob=None):
         self.gm_h0 = _gm_h0(runprops)
         self.moonlike = 0.9
         self.wide = 0.0
         self.ref_binary_frac = self.moonlike + self.wide
         self.popu = self.population_simulator(reference_pop)
+        if detection_prob is not None:
+            # Observe the reference through the same detection function
+            # the model is scored with, then blank sep/pa/dm for the
+            # binaries it misses -- the same convention as a real
+            # observed csv, where an undetected companion is
+            # indistinguishable from a single (voxel_counts drops NaN
+            # rows). Without this, binaries the model can never detect
+            # (e.g. sep < 0.1") counted as observed.
+            self.apply_detection(detection_prob)
+            missed = ~self.popu['detected']
+            self.popu.loc[missed, ['sep', 'pa', 'dm']] = np.nan
 
         # Log population characteristics
         self.type = "Reference"
@@ -307,8 +318,6 @@ class Pluto(Population):
         a = 19591.0 #km
         e = 0.0002
         i = 96.2 # deg
-        lan = 223.1 # deg
-        aop = 0.0 # deg
         dm_mean = 1.9
         dm_std = 0.2
         scatter_km = 0.1 * AU_km
@@ -318,8 +327,10 @@ class Pluto(Population):
 
 
         results = []
-        for i in range(0, 500):
-            name = f'Pluto_{i}'
+        # Loop index is `n`, not `i`: `i` would overwrite the 96.2 deg
+        # inclination above, giving system n an inclination of n degrees.
+        for n in range(0, 500):
+            name = f'Pluto_{n}'
 
             x = x0 + np.random.normal(0, scatter_km)
             y = y0 + np.random.normal(0, scatter_km)
@@ -331,16 +342,29 @@ class Pluto(Population):
             binary_check = np.random.rand()
             if binary_check > (self.ref_binary_frac):
                 binary_type = 'single'
-                results.append({'Name': name, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'params': np.nan})
+                # x/y/z/H recorded for singles too: Population() re-simulates
+                # every reference row, so a single with NaN position could
+                # never come out as a binary there.
+                results.append({'Name': name, 'x': x, 'y': y, 'z': z, 'H': H, 'binary_type': binary_type, 'sep': np.nan, 'pa': np.nan, 'dm': np.nan, 'params': np.nan})
                 continue
             elif binary_check > self.wide:
                 binary_type = 'moonlike'
+                # Random orientation per system -- lan/aop uniform, like
+                # the model's own Om/w draws -- so this test population is
+                # reachable by the model family (a single fixed lan gave
+                # every system the same sky orientation, a PA structure
+                # the model's uniform Om can never reproduce).
+                lan = np.random.uniform(0.0, 360.0)
+                aop = np.random.uniform(0.0, 360.0)
                 mea = np.random.uniform(0.0, 360.0)
                 orbital_params = (a, e, i, aop, lan, mea)
                 dm = abs(np.random.normal(dm_mean, dm_std))
                 sep, pa = self.compute_separation(xyz_earth, orbital_params, H, dm)
             else:
                 binary_type = 'wide'
+                # Same random orientation as the moonlike branch.
+                lan = np.random.uniform(0.0, 360.0)
+                aop = np.random.uniform(0.0, 360.0)
                 mea = np.random.uniform(0.0, 360.0)
                 orbital_params = (a, e, i, aop, lan, mea)
                 dm = abs(np.random.normal(dm_mean, dm_std))

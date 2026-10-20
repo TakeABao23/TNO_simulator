@@ -156,7 +156,7 @@ def plot_first_last_comparison(posteriors_path, reference_pop, run_runprops, det
 
 def main(posteriors_path):
     run_runprops = load_run_runprops(posteriors_path)
-    reference_pop = Pluto(runprops=run_runprops)
+    reference_pop = Pluto(runprops=run_runprops, detection_prob=det_prob)
     print(reference_pop)
 
     results_folder = os.path.dirname(posteriors_path)
