@@ -158,6 +158,7 @@ def plot_and_write(sampler, run_config, results_folder):
     extra_columns = ["step", "ll_count"]
     header = ",".join(extra_columns + list(param_names)) if param_names else ",".join(extra_columns)
     posteriors_path = os.path.join(results_folder, "posteriors.csv")
+    runprops.ensure_results_folder(results_folder)
     full_data = np.column_stack([step_numbers, ll_counts, samples])
     # column_stack upcasts step_numbers to float alongside the other
     # columns, so it needs its own integer format to write back out as
@@ -184,6 +185,7 @@ def plot_and_write(sampler, run_config, results_folder):
     if param_names:
         log_probs = sampler.get_log_prob(discard=burnin_steps, flat=True)
         best_sample = samples[np.argmax(log_probs)]
+        runprops.ensure_results_folder(results_folder)
         try:
             next_runprops_path = write_next_runprops(
                 best_sample, param_names, run_config, results_folder
@@ -235,11 +237,19 @@ def run(run_dir):
     os.chdir(TNO_SIM_DIR)
     try:
         import emcee_walker
-        run_config = runprops.load_runprops(run_dir) if run_dir else None
+        run_config = (runprops.load_runprops(run_dir, make_results_folder=runprops.is_mpi_driver())
+                      if run_dir else None)
         if run_config is not None:
             print("run config going!")
-            sampler = emcee_walker.emcee_walker(run_config)
             results_folder = run_config.get("results_folder")
+            if results_folder:
+                runprops.mark_running(results_folder, run_dir)
+            try:
+                sampler = emcee_walker.emcee_walker(run_config)
+            except BaseException:
+                if results_folder:
+                    runprops.mark_crashed(results_folder)
+                raise
         else:
             print("no run config, running once")
             emcee_walker.run_once()
@@ -248,6 +258,8 @@ def run(run_dir):
     finally:
         os.chdir(original_cwd)
 
+    if not results_folder and not runprops.is_mpi_driver():
+        return None, None, None  # MPI worker rank: the driver reports results
     if not results_folder:
         print("Run complete, but no runprops results_folder was reported "
               "(RUN_DIR may not have resolved to a valid run).")
@@ -261,7 +273,12 @@ def run(run_dir):
 def main(run_dir):
     results_folder, sampler, run_config = run(run_dir)
     if sampler is not None:
-        plot_and_write(sampler, run_config, results_folder)
+        try:
+            plot_and_write(sampler, run_config, results_folder)
+        except BaseException:
+            runprops.mark_crashed(results_folder)
+            raise
+        runprops.mark_finished(results_folder)
 
 
 if __name__ == "__main__":

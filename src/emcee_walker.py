@@ -150,11 +150,13 @@ def emcee_walker(run_config=None):
         print(f"Burn-in: {burn_count} steps x {nwalkers} walkers")
         state = sampler.run_mcmc(p0, burn_count, progress=True)
         if results_folder:
+            runprops.ensure_results_folder(results_folder)
             burnin_end_path = save_walker_positions(state.coords, param_config, results_folder)
             print(f"End-of-burn-in walker positions written to {burnin_end_path}")
         print(f"Sampling: {step_count} steps x {nwalkers} walkers")
         final_state = sampler.run_mcmc(state, step_count, progress=True)
         if results_folder:
+            runprops.ensure_results_folder(results_folder)
             # Same format as burnin_end.csv, so a later run can point its
             # init_positions_file here to continue from this run's end.
             final_path = save_walker_positions(final_state.coords, param_config, results_folder,
@@ -285,7 +287,8 @@ def run_once():
 
 if __name__ == '__main__':
     RUN_DIR = os.environ.get("TNO_RUN_DIR", "runs/Pluto_test/000")
-    run_config = runprops.load_runprops(RUN_DIR) if RUN_DIR else None
+    run_config = (runprops.load_runprops(RUN_DIR, make_results_folder=runprops.is_mpi_driver())
+                  if RUN_DIR else None)
     
     if run_config is not None:
         print("run config going!")
