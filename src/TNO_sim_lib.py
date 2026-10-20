@@ -34,6 +34,22 @@ from numpy.lib import recfunctions as rfn
 rng = np.random.default_rng()
 
 
+def reseed(seed):
+    """
+    Reset both random streams the simulation draws from -- numpy's
+    global RNG (population_class's np.random calls) and `rng` above
+    (every runprops draw expression) -- to `seed`. For common random
+    numbers (runprops' crn_seed): reseeding at the start of every
+    likelihood evaluation gives each walker the same draws, so the
+    log-likelihood is a deterministic function of theta instead of
+    re-rolling its noise on every call. `rng` is reset in place (its
+    bit_generator state swapped), not rebound, since DetProb instances
+    captured this exact Generator object at construction.
+    """
+    np.random.seed(seed)
+    rng.bit_generator.state = np.random.default_rng(seed).bit_generator.state
+
+
 def _dtype(names):
     return [(name, np.float64) for name in names]
 

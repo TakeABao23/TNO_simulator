@@ -296,6 +296,14 @@ def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbo
     # fixed parameters shrinks as K grows (see voxel_grid).
     n_real = param_config.get("n_realizations", 1)
     alpha = param_config.get("voxel_prior_alpha", 0.5)
+    # Common random numbers: if runprops sets crn_seed, every evaluation
+    # draws the same random numbers, so walkers compare parameters rather
+    # than lucky/unlucky simulation draws (see TNO_sim_lib.reseed()). The
+    # posterior is then conditioned on that one fixed set of K
+    # realizations -- larger n_realizations shrinks that effect.
+    crn_seed = param_config.get("crn_seed")
+    if crn_seed is not None:
+        TNO_sim_lib.reseed(crn_seed)
     ref_popu = reference_pop.popu
     if n_real > 1:
         ref_popu = ref_popu.loc[ref_popu.index.repeat(n_real)]
