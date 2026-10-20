@@ -21,6 +21,11 @@
     "nsteps" : 50,			# number of steps for sampling after burn in
     "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
 
+    # Primary mass from H: sphere with this geometric albedo and bulk
+    # density, D [km] = 1329 / sqrt(albedo) * 10^(-H/5).
+    "albedo" : 0.1,
+    "density" : 1.0,			# g/cm^3
+
     # Moon-like binary parameters: names (fixes the structured-array field
     # order and emcee's flat theta order) and one draw expression per name,
     # each eval'd with `rng` (a numpy Generator) in scope.
@@ -64,7 +69,7 @@
     # with `rng` and `params` (the current moon-level hyperparameter
     # structured record) in scope.
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a" : "lambda: rng.power(params['ka']) * 10000",
+    "a" : "lambda: rng.power(params['ka']) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
     "e" : "lambda: rng.beta(params['ae'], params['ke'])",
     "i" : "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
     "w" : "lambda: rng.uniform(0.0, 360.0)",

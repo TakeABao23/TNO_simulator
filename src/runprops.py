@@ -2,6 +2,8 @@ import commentjson as json
 import os
 import datetime
 import shutil
+import socket
+import traceback
 import numpy as np
 
 
@@ -13,9 +15,28 @@ class ReadJson(object):
         return self.data
 
 
-def load_runprops(run_dir=".", filename="runprops.txt"):
+# Original runprops.txt text per results folder, kept in memory (on the
+# process that created the folder) so ensure_results_folder() can restore
+# the folder's copy if the folder is deleted mid-run -- not stored in the
+# runprops dict itself, which is pickled into every emcee task.
+_RUNPROPS_TEXT = {}
+
+RUNNING_MARKER = "RUNNING"
+CRASHED_MARKER = "CRASHED"
+
+
+def load_runprops(run_dir=".", filename="runprops.txt",
+                  make_results_folder=False):
     """
-    Load runprops.txt from `run_dir` and set up a results folder for this run.
+    Load runprops.txt from `run_dir`, and optionally set up a results
+    folder for this run.
+
+    Only a real run should pass make_results_folder=True (and, under MPI,
+    only its driver rank): every call that creates one leaves a new
+    timestamped folder behind, which used to make results/ fill up with
+    near-empty folders from tests, checks, and worker ranks -- easy to
+    mistake for junk and delete out from under a live run. With the
+    default False, results_folder is None and nothing is written to disk.
 
     `run_dir` must be a runs/<objectname>/<run_file> directory (a fresh run)
     or a results/<objectname>/<run> directory (resuming a prior run). Every
@@ -67,8 +88,7 @@ def load_runprops(run_dir=".", filename="runprops.txt"):
     else:
         newpath = os.path.join(sim_root, "results", objname,
                                 objname + "_" + date + "_" + str(runprops.get("run_file")))
-    os.makedirs(newpath, exist_ok=True)
-    runprops['results_folder'] = newpath
+    runprops['results_folder'] = newpath if make_results_folder else None
 
     if isinstance(runprops.get('numpy_seed'), int):
         np.random.seed(seed=runprops.get('numpy_seed'))
@@ -77,6 +97,12 @@ def load_runprops(run_dir=".", filename="runprops.txt"):
         np.random.seed(seed=seed)
         runprops['numpy_seed'] = seed
 
+    if not make_results_folder:
+        return runprops
+
+    os.makedirs(newpath, exist_ok=True)
+    with open(filepath) as f:
+        _RUNPROPS_TEXT[newpath] = f.read()
     shutil.copy(filepath, os.path.join(newpath, 'runprops.txt'))
 
     if kind == "results":
@@ -95,11 +121,87 @@ def load_runprops(run_dir=".", filename="runprops.txt"):
     return runprops
 
 
+def is_mpi_driver():
+    """
+    True on the MPI rank that drives emcee (rank 0, which schwimmbad's
+    MPIPool makes the master), or when not running under MPI at all. Only
+    this rank should create a results folder: the worker ranks just
+    evaluate log_posterior, and each one creating its own timestamped
+    folder left stray near-empty copies whenever ranks straddled a
+    second boundary at startup.
+    """
+    try:
+        from mpi4py import MPI
+    except ImportError:
+        return True
+    return MPI.COMM_WORLD.Get_rank() == 0
+
+
+def mark_running(results_folder, run_dir=None):
+    """
+    Write a RUNNING marker into `results_folder`, so a live run's folder
+    is distinguishable from an abandoned one. mark_finished() removes it
+    and mark_crashed() swaps it for CRASHED, so a RUNNING left behind on
+    a run that isn't running means it was killed outright (e.g. SIGKILL,
+    or mpiexec aborting the driver).
+    """
+    with open(os.path.join(results_folder, RUNNING_MARKER), "w") as f:
+        f.write("This run is in progress -- do not delete this folder.\n"
+                f"started: {datetime.datetime.now().isoformat()}\n"
+                f"host: {socket.gethostname()}\n"
+                f"pid: {os.getpid()}\n"
+                f"run_dir: {run_dir}\n")
+
+
+def mark_finished(results_folder):
+    """Remove `results_folder`'s RUNNING marker once the run completes."""
+    path = os.path.join(results_folder, RUNNING_MARKER)
+    if os.path.exists(path):
+        os.remove(path)
+
+
+def mark_crashed(results_folder):
+    """
+    Replace `results_folder`'s RUNNING marker with a CRASHED file holding
+    the current exception's traceback. Call from inside an except block.
+    """
+    os.makedirs(results_folder, exist_ok=True)
+    with open(os.path.join(results_folder, CRASHED_MARKER), "w") as f:
+        f.write(f"crashed: {datetime.datetime.now().isoformat()}\n\n")
+        f.write(traceback.format_exc())
+    mark_finished(results_folder)
+
+
+def ensure_results_folder(results_folder):
+    """
+    Make sure `results_folder` still exists before writing into it,
+    recreating it (with its runprops.txt copy, if this process created
+    the folder, and a RUNNING marker) and warning if it was deleted
+    mid-run -- so a deleted folder costs the files already written there,
+    not the whole in-memory chain.
+    """
+    if os.path.isdir(results_folder):
+        return
+    print(f"WARNING: results folder {results_folder} was deleted mid-run; "
+          "recreating it. Files already written there (e.g. "
+          "burnin_end.csv) are lost.")
+    os.makedirs(results_folder, exist_ok=True)
+    text = _RUNPROPS_TEXT.get(results_folder)
+    if text is not None:
+        with open(os.path.join(results_folder, "runprops.txt"), "w") as f:
+            f.write(text)
+    mark_running(results_folder)
+
+
 # Used only when emcee_walker()/run_once() are called with no real runprops
 # (the "hardcoded defaults" path) -- there's no more params.py to fall back
 # on, so the moon/wide/orbital parameter definitions have to live somewhere
 # even without a runprops.txt. Mirrors runs/Pluto_test/000/runprops.txt.
 FALLBACK_RUNPROPS = {
+    "albedo": 0.1,
+    "density": 1.0,
+    "n_realizations": 1,
+    "voxel_prior_alpha": 0.5,
     "moon_param_names": ["fb", "ka", "ae", "ke", "ai", "ki", "mdm", "sdm"],
     "moon_fb": "rng.uniform(0.0, 1.0)",
     "moon_ka": "rng.uniform(0.1, 5.0)",
@@ -118,7 +220,7 @@ FALLBACK_RUNPROPS = {
     "wide_mdm": "np.nan",
     "wide_sdm": "np.nan",
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a": "lambda: rng.power(params['ka']) * 10000",
+    "a": "lambda: rng.power(params['ka']) * 20000",  # scale raised from 10000 km, see runs/Pluto_test/000/runprops.txt's "a" comment
     "e": "lambda: rng.beta(params['ae'], params['ke'])",
     "i": "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
     "w": "lambda: rng.uniform(0.0, 360.0)",

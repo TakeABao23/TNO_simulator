@@ -17,6 +17,7 @@ class instances -- dict-like field access, but a real ndarray dtype, which
 converts to/from the flat float array emcee's theta requires via
 numpy.lib.recfunctions instead of hand-written zip/dict-comprehension code.
 """
+import functools
 import os
 
 import numpy as np
@@ -37,11 +38,30 @@ def _dtype(names):
     return [(name, np.float64) for name in names]
 
 
+@functools.lru_cache(maxsize=None)
+def _compile_expr(expr):
+    """
+    Compile a runprops eval'able expression string once and cache the code
+    object. eval()ing a string re-parses and re-compiles the source from
+    scratch every single call -- since the same handful of expression
+    strings (from moon_param_names/orb_param_names/det_prob) get eval'd on
+    every draw, for every binary, for every emcee likelihood evaluation,
+    this dominated profiled runtime (~400k eval() calls, ~20s of a 75s
+    profiled run -- see draw_orbit_params()). eval() accepts a code object
+    exactly like it accepts the original string, so this is a drop-in
+    replacement everywhere `expr` was eval'd directly: only the first
+    occurrence of a given expression string pays the compile cost, however
+    many times it's evaluated after (in this or later runs -- the cache is
+    process-wide, keyed on the string itself, not per-runprops).
+    """
+    return compile(expr, "<runprops>", "eval")
+
+
 def _draw_record(names, exprs):
     """Eval one expression per name and pack the results into a structured scalar."""
     arr = np.zeros(1, dtype=_dtype(names))
     for name, expr in zip(names, exprs):
-        arr[name] = eval(expr, {"rng": rng, "np": np}, {})
+        arr[name] = eval(_compile_expr(expr), {"rng": rng, "np": np}, {})
     return arr[0]
 
 
@@ -70,14 +90,20 @@ def draw_orbit_params(moon_params, runprops):
     eval'd with `params` bound to `moon_params` (the walker's current
     moon-level hyperparameters, e.g. so `a`'s expression can reference
     params['ka']), then immediately called to draw one sample.
+
+    Returns a plain dict (name -> value), not a numpy structured scalar --
+    unlike moon_params/wide_params (drawn once per Population, then
+    round-tripped through moon_params_to_array/moon_params_from_array as
+    emcee's flat theta, where the structured-array dtype earns its keep),
+    this is drawn once per binary and immediately unpacked by its only
+    caller (population_class.py's `[orb[name] for name in orb_names]`) --
+    plain dict field access works identically there, without paying
+    numpy's structured-dtype construction overhead (isinstance/dtype
+    validation) on every single draw.
     """
     names = runprops["orb_param_names"]
     namespace = {"rng": rng, "np": np, "params": moon_params}
-    arr = np.zeros(1, dtype=_dtype(names))
-    for name in names:
-        draw_fn = eval(runprops[name], namespace)
-        arr[name] = draw_fn()
-    return arr[0]
+    return {name: eval(_compile_expr(runprops[name]), namespace)() for name in names}
 
 
 class _RunpropsDetProb:
@@ -94,7 +120,7 @@ class _RunpropsDetProb:
     """
     def __init__(self, expr):
         self.expr = expr
-        self._fn = eval(expr, {"rng": rng, "np": np})
+        self._fn = eval(_compile_expr(expr), {"rng": rng, "np": np})
 
     def __call__(self, sep, dm):
         return self._fn(sep, dm)
@@ -103,8 +129,12 @@ class _RunpropsDetProb:
         return self.expr
 
     def __setstate__(self, expr):
+        # Runs on every MPIPool task's unpickling (det_prob_fn is part of
+        # emcee's sampler args, re-sent per task), same as __init__ -- the
+        # _compile_expr cache means only the very first unpickling anywhere
+        # in the process actually compiles this expression.
         self.expr = expr
-        self._fn = eval(expr, {"rng": rng, "np": np})
+        self._fn = eval(_compile_expr(expr), {"rng": rng, "np": np})
 
 
 def load_det_prob(runprops):
@@ -187,13 +217,18 @@ def param_bounds(runprops):
     return bounds
 
 
-def log_prior(theta, runprops):
+def log_prior(params, runprops):
     """
     Uniform prior over runprops' param_bounds, in moon_param_names order.
     Returns 0.0 if every parameter is within bounds, -inf otherwise (e.g. a
     negative ka/ae/ke/ai/ki, which would crash rng.power/rng.beta).
+
+    `params` is already a moon-like structured record (see
+    moon_params_from_array()), not raw theta -- emcee_walker.log_posterior()
+    builds it once from theta and passes the same record to both
+    log_prior() and get_log_likelihood(), instead of each independently
+    reconstructing it.
     """
-    params = moon_params_from_array(theta, runprops)
     bounds = param_bounds(runprops)
     for name in runprops["moon_param_names"]:
         lo, hi = bounds[name]
