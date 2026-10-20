@@ -120,6 +120,13 @@ def plot_pa_vs_sep_comparison(named_pops, observed=None):
     vmin = min(dm.min() for dm in dm_values)
     vmax = max(dm.max() for dm in dm_values)
 
+    # Shared radial (separation) limits too, so the subplots' scales match
+    # rather than each autoscaling to its own outermost point.
+    sep_values = [binaries['sep'] for binaries in binaries_per_pop]
+    if observed is not None:
+        sep_values.append(observed['sep'])
+    rmax = 1.05 * max(sep.max() for sep in sep_values)
+
     fig = plt.figure(figsize=(7 * len(named_pops), 7))
     sc = None
     for idx, ((label, _), binaries) in enumerate(zip(named_pops, binaries_per_pop)):
@@ -141,6 +148,7 @@ def plot_pa_vs_sep_comparison(named_pops, observed=None):
                        label='observed')
             ax.legend(loc='upper left', bbox_to_anchor=(-0.2, 1.1))
 
+        ax.set_ylim(0.0, rmax)
         ax.set_title(label)
 
     fig.colorbar(sc, ax=fig.get_axes(), label=r'$\Delta m$ (mag)')
