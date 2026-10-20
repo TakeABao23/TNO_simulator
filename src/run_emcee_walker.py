@@ -25,17 +25,7 @@ import runprops
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def _set_runprops_value(text, key, value):
-    """
-    Return `text` (a runprops.txt's contents) with `key`'s value replaced
-    by `value`, leaving every other line -- comments included -- as is.
-    Returns None if `key` isn't in `text`.
-    """
-    match = re.search(r'^\s*"%s"\s*:\s*' % re.escape(key), text, re.M)
-    if match is None:
-        return None
-    _, value_end = json.JSONDecoder().raw_decode(text, match.end())
-    return text[:match.end()] + json.dumps(value) + text[value_end:]
+_set_runprops_value = runprops.set_runprops_value
 
 
 def _add_runprops_value(text, key, value, comment):
