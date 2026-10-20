@@ -25,7 +25,7 @@ import spiceypy as spice  # noqa: E402
 import voxel_grid  # noqa: E402
 from runprops import FALLBACK_RUNPROPS, fallback_det_prob  # noqa: E402
 from emcee_walker import Pluto, get_log_likelihood  # noqa: E402
-from population_class import Population  # noqa: E402
+from population_class import Population, PlutoSpread  # noqa: E402
 from TNO_sim_lib import (moon_params_from_array, draw_orbit_params,  # noqa: E402
                          load_det_prob)
 
@@ -145,6 +145,51 @@ class TestPlutoReference(unittest.TestCase):
     def test_every_row_has_position(self):
         cols = ["x", "y", "z", "H"]
         self.assertFalse(self.ref.popu[cols].isna().any().any())
+
+
+# PlutoSpread.TRUTH as theta (fb, ka, ae, ke, ai, ki, mdm, sdm); FALLBACK's
+# "a" scale is 20000 km, matching TRUTH's a_max.
+THETA_SPREAD_TRUTH = [0.9, 8.0, 2.0, 10.0, 15.0, 13.0, 1.9, 0.2]
+# Same e/i means, near-zero a/e/i spread -- the zero-spread Pluto's
+# runaway fit. (Mean a moves 17800 -> 20000 km with ka at the cap.)
+THETA_SPREAD_NARROW = [0.9, 1.0e4, 1667.0, 8333.0, 5357.0, 4643.0, 1.9, 0.2]
+
+
+class TestPlutoSpread(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cfg = dict(FALLBACK_RUNPROPS)
+        cls.cfg["n_realizations"] = 10
+        np.random.seed(SEED)
+        cls.ref = PlutoSpread(runprops=cls.cfg,
+                              detection_prob=fallback_det_prob)
+        cls.ref.voxel_n_obs = voxel_grid.voxel_counts(cls.ref.popu)
+        binaries = cls.ref.popu[cls.ref.popu["binary_type"] != "single"]
+        cls.orb = np.array(binaries["params"].tolist())
+
+    def test_aei_have_spread_near_pluto(self):
+        a, e, i = self.orb[:, 0], self.orb[:, 1], self.orb[:, 2]
+        self.assertAlmostEqual(np.mean(a), 20000 * 8 / 9, delta=300)
+        self.assertGreater(np.std(a), 1500)
+        self.assertAlmostEqual(np.mean(e), 2 / 12, delta=0.02)
+        self.assertAlmostEqual(np.mean(i), 96.4, delta=3.0)
+        self.assertGreater(np.std(i), 12.0)
+
+    def test_runprops_override(self):
+        cfg = dict(self.cfg, pluto_spread={"ka": 1000.0})
+        ref = PlutoSpread(runprops=cfg)
+        self.assertEqual(ref.truth["ka"], 1000.0)
+        self.assertEqual(ref.truth["ae"], PlutoSpread.TRUTH["ae"])
+
+    def test_truth_beats_zero_spread(self):
+        ll_truth = _lls(THETA_SPREAD_TRUTH, self.cfg, fallback_det_prob,
+                        self.ref)
+        ll_narrow = _lls(THETA_SPREAD_NARROW, self.cfg, fallback_det_prob,
+                         self.ref)
+        gap = np.mean(ll_truth) - np.mean(ll_narrow)
+        noise = np.hypot(np.std(ll_truth), np.std(ll_narrow))
+        self.assertGreater(gap, 5.0 * noise)
 
 
 def _sep_pa_spice(xyz, orb):

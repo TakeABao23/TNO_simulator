@@ -11,7 +11,7 @@
     # Run properties
     "objectname" : "Pluto_test",
     "run_file": "003",
-    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population; otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
     "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
     "det_prob": "lambda sep, dm: (sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25)) & ((sep < 0.5) | (dm <= 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
 

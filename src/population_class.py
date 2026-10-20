@@ -316,9 +316,6 @@ class Pluto(Population):
         lon_rad = np.radians(298.0)
         lat_rad = np.radians(16.0)
         H = -0.44
-        a = 19591.0 #km
-        e = 0.0002
-        i = 96.2 # deg
         dm_mean = 1.9
         dm_std = 0.2
         scatter_km = 0.1 * AU_km
@@ -349,8 +346,8 @@ class Pluto(Population):
         lan = np.random.uniform(0.0, 360.0, nb)
         aop = np.random.uniform(0.0, 360.0, nb)
         mea = np.random.uniform(0.0, 360.0, nb)
-        orbital_params = np.column_stack(
-            [np.full(nb, a), np.full(nb, e), np.full(nb, i), aop, lan, mea])
+        a, e, i = self._draw_aei(nb)
+        orbital_params = np.column_stack([a, e, i, aop, lan, mea])
         dm_b = np.abs(np.random.normal(dm_mean, dm_std, nb))
         sep_b, pa_b = self.compute_separation(xyz[binary], orbital_params)
 
@@ -359,3 +356,56 @@ class Pluto(Population):
         # come out as a binary there.
         return self._build_popu(names, xyz, Hs, binary_type, binary, sep_b,
                                 pa_b, dm_b, orbital_params)
+
+    def _draw_aei(self, nb):
+        """
+        Semi-major axis [km], eccentricity, inclination [deg] for `nb`
+        binaries: Pluto-Charon's values for every system, no spread.
+        """
+        return (np.full(nb, 19591.0), np.full(nb, 0.0002),
+                np.full(nb, 96.2))
+
+
+class PlutoSpread(Pluto):
+    """
+    Pluto reference with a real spread in a, e and i, drawn from the
+    model's own distribution family (see the a/e/i expressions in
+    runprops) with known true hyperparameters -- so a fit should recover a
+    peaked posterior near them, instead of the zero-spread Pluto
+    reference's runaway toward the param_bounds cap.
+
+    Defaults (TRUTH below) keep the means near Pluto-Charon's:
+      a = a_max * U^(1/ka):     mean ~17800 km, std ~2000 km
+      e ~ Beta(ae, ke):         mean 0.17, std 0.10
+      i = 180 * Beta(ai, ki):   mean 96.4 deg, std ~17 deg
+    Only the spread in a is clearly detectable by the voxel likelihood:
+    dropping it costs ~25 in log-likelihood at n_realizations=10, while
+    dropping the e or i spread costs less than the noise (~3), even for
+    much wider e/i spreads. Expect ka to give a peaked posterior here and
+    ae/ke, ai/ki to still pin down only their means.
+    Override any of them with a runprops "pluto_spread" dict, e.g.
+    "pluto_spread": {"ka": 3, "a_max": 30000}. a_max should match the
+    scale in runprops' "a" expression, or the model can't reach the truth.
+    Everything else (positions, fb, dm, orientation, detection) is the
+    same as Pluto.
+    """
+    TRUTH = {"ka": 8.0, "a_max": 20000.0, "ae": 2.0, "ke": 10.0,
+             "ai": 15.0, "ki": 13.0}
+
+    def __init__(self, reference_pop=None, runprops=None, detection_prob=None):
+        self.truth = dict(self.TRUTH)
+        self.truth.update((runprops or {}).get("pluto_spread", {}))
+        super().__init__(reference_pop, runprops, detection_prob)
+        self.type = "Reference (Pluto with a/e/i spread)"
+
+    def _draw_aei(self, nb):
+        t = self.truth
+        a = t["a_max"] * np.random.power(t["ka"], nb)
+        e = np.random.beta(t["ae"], t["ke"], nb)
+        i = 180.0 * np.random.beta(t["ai"], t["ki"], nb)
+        return a, e, i
+
+
+# runprops "reference_pop" names for the built-in synthetic references;
+# any other value is a csv filename.
+SYNTHETIC_REFERENCES = {"Pluto": Pluto, "Pluto_spread": PlutoSpread}

@@ -112,7 +112,7 @@ def load_runprops(run_dir=".", filename="runprops.txt",
             runprops['chain_file'] = os.path.join(newpath, 'chain.h5')
 
     ref_pop = runprops.get('reference_pop')
-    if ref_pop and ref_pop != "Pluto":
+    if ref_pop and ref_pop not in ("Pluto", "Pluto_spread"):
         ref_pop_path = os.path.join(run_dir, ref_pop)
         if os.path.exists(ref_pop_path):
             runprops['reference_pop_file'] = ref_pop_path

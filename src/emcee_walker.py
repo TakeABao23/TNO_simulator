@@ -128,9 +128,10 @@ def emcee_walker(run_config=None):
         if numpy_seed is not None:
             np.random.seed(numpy_seed)
 
-        if ref_pop_name == "Pluto":
-            print("Using synthetic Pluto population as reference")
-            reference_pop = Pluto(runprops=param_config, detection_prob=det_prob_fn)
+        if ref_pop_name in SYNTHETIC_REFERENCES:
+            print(f"Using synthetic {ref_pop_name} population as reference")
+            reference_pop = SYNTHETIC_REFERENCES[ref_pop_name](
+                runprops=param_config, detection_prob=det_prob_fn)
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
         # Precomputed once, here, before reference_pop is ever pickled into

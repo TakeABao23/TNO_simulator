@@ -20,7 +20,7 @@ import commentjson
 import numpy as np
 
 import chain_plotter
-from population_class import Population, Pluto
+from population_class import Population, SYNTHETIC_REFERENCES
 from population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
 
 
@@ -154,7 +154,13 @@ def plot_first_last_comparison(posteriors_path, reference_pop, run_runprops, det
 
 def main(posteriors_path):
     run_runprops = load_run_runprops(posteriors_path)
-    reference_pop = Pluto(runprops=run_runprops, detection_prob=det_prob)
+    ref_name = run_runprops.get("reference_pop", "Pluto")
+    if ref_name not in SYNTHETIC_REFERENCES:
+        raise ValueError(f"reference_pop {ref_name!r} is not a synthetic "
+                         "reference; this script only regenerates "
+                         f"{list(SYNTHETIC_REFERENCES)}")
+    reference_pop = SYNTHETIC_REFERENCES[ref_name](runprops=run_runprops,
+                                                   detection_prob=det_prob)
     print(reference_pop)
 
     results_folder = os.path.dirname(posteriors_path)
