@@ -5,13 +5,13 @@
     "time": "autogenerate",
     "user": "autogenerate",
     "TNO_simulator commit hash": "autogenerate",
-    "RunGoal" : "Same as 005, but sample ka/ae/ke/ai/ki as log10 (log-uniform prior, same 200 cap) so unconstrained spreads spread evenly per decade instead of piling up at the cap",
+    "RunGoal" : "Fresh start with the negative-binomial voxel likelihood (n_realizations=10) and the fixed Pluto reference (random orientation, detection applied, loop-variable inclination bug fixed)",
     "verbose" : true,
 
     # Run properties
     "objectname" : "Pluto_test",
-    "run_file": "006",
-    "reference_pop": "Pluto_spread",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "run_file": "1.000",
+    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
     "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
     "det_prob": "lambda sep, dm: (sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25)) & ((sep < 0.5) | (dm <= 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
 
@@ -36,50 +36,44 @@
 
     # Moon-like binary parameters: names (fixes the structured-array field
     # order and emcee's flat theta order) and one draw expression per name,
-    # each eval'd with `rng` (a numpy Generator) in scope. log_<x> is
-    # log10(x): emcee samples it with a flat prior, i.e. log-uniform in x,
-    # and the "a"/"e"/"i" expressions below convert back with 10**.
-    # Starting ranges are the same as 005's linear ones, in log10.
-    "moon_param_names": ["fb", "log_ka", "log_ae", "log_ke", "log_ai", "log_ki", "mdm", "sdm"],
+    # each eval'd with `rng` (a numpy Generator) in scope.
+    "moon_param_names": ["fb", "ka", "ae", "ke", "ai", "ki", "mdm", "sdm"],
     "moon_fb" : "rng.uniform(0.0, 1.0)",
-    "moon_log_ka" : "rng.uniform(np.log10(0.1), np.log10(5.0))",
-    "moon_log_ae" : "rng.uniform(np.log10(0.5), np.log10(5.0))",
-    "moon_log_ke" : "rng.uniform(np.log10(0.5), np.log10(5.0))",
-    "moon_log_ai" : "rng.uniform(np.log10(0.5), np.log10(20.0))",
-    "moon_log_ki" : "rng.uniform(np.log10(0.5), np.log10(20.0))",
+    "moon_ka" : "rng.uniform(0.1, 5.0)",
+    "moon_ae" : "rng.uniform(0.5, 5.0)",
+    "moon_ke" : "rng.uniform(0.5, 5.0)",
+    "moon_ai" : "rng.uniform(0.5, 20.0)",
+    "moon_ki" : "rng.uniform(0.5, 20.0)",
     "moon_mdm" : "rng.uniform(0.0, 4.0)",
     "moon_sdm" : "rng.uniform(0.1, 2.0)",
 
-    # Uniform-prior bounds per moon parameter, used by log_prior. The log_
-    # bounds are 005's linear ones in log10: ka in [0.1, 200], ae/ke/ai/ki
-    # in [0.5, 200]. null = unbounded in that direction. Capped at 200:
-    # the likelihood is already flat by ~20-100 (narrower distributions
-    # than the data can resolve; a zero-spread reference like Pluto's
-    # otherwise lets walkers drift to ~1e13). Posteriors piling up at the
-    # cap mean only a lower limit is constrained, i.e. consistent with
-    # zero spread. In log10 the cap matters much less than in 005 (raising
-    # it to 1e4 would move the edge by only 1.7), but a lower limit still
-    # depends on it somewhat.
+    # Uniform-prior bounds per moon parameter, used by log_prior to reject
+    # e.g. a negative ka/ae/ke/ai/ki before it crashes rng.power/rng.beta.
+    # null = unbounded in that direction. ka/ae/ke/ai/ki are capped at 1e4:
+    # past a few thousand the distributions are narrower than the data can
+    # resolve (a zero-spread reference like Pluto's otherwise lets walkers
+    # drift to ~1e13). Posteriors piling up at the cap mean only a lower
+    # limit is constrained, i.e. consistent with zero spread.
     "param_bounds": {
         "fb":  [0.0, 1.0],
-        "log_ka":  [-1.0, 2.30103],
-        "log_ae":  [-0.30103, 2.30103],
-        "log_ke":  [-0.30103, 2.30103],
-        "log_ai":  [-0.30103, 2.30103],
-        "log_ki":  [-0.30103, 2.30103],
+        "ka":  [0.1, 1.0e4],
+        "ae":  [0.5, 1.0e4],
+        "ke":  [0.5, 1.0e4],
+        "ai":  [0.5, 1.0e4],
+        "ki":  [0.5, 1.0e4],
         "mdm": [null, null],
         "sdm": [0.1, null]
     },
 
     # Wide-binary parameters -- currently inert (see population_class.py:
-    # fb=0 disables the wide-binary branch entirely; log_ka..sdm are unused
+    # fb=0 disables the wide-binary branch entirely; ka..sdm are unused
     # placeholders, NaN since a structured float64 array can't hold None).
     "wide_fb" : "0.0",
-    "wide_log_ka" : "np.nan",
-    "wide_log_ae" : "np.nan",
-    "wide_log_ke" : "np.nan",
-    "wide_log_ai" : "np.nan",
-    "wide_log_ki" : "np.nan",
+    "wide_ka" : "np.nan",
+    "wide_ae" : "np.nan",
+    "wide_ke" : "np.nan",
+    "wide_ai" : "np.nan",
+    "wide_ki" : "np.nan",
     "wide_mdm" : "np.nan",
     "wide_sdm" : "np.nan",
 
@@ -88,9 +82,9 @@
     # with `rng` and `params` (the current moon-level hyperparameter
     # structured record) in scope.
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a" : "lambda n: rng.power(10**params['log_ka'], n) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
-    "e" : "lambda n: rng.beta(10**params['log_ae'], 10**params['log_ke'], n)",
-    "i" : "lambda n: 180.0 * rng.beta(10**params['log_ai'], 10**params['log_ki'], n)",
+    "a" : "lambda n: rng.power(params['ka'], n) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
+    "e" : "lambda n: rng.beta(params['ae'], params['ke'], n)",
+    "i" : "lambda n: 180.0 * rng.beta(params['ai'], params['ki'], n)",
     "w" : "lambda n: rng.uniform(0.0, 360.0, n)",
     "Om" : "lambda n: rng.uniform(0.0, 360.0, n)",
     "mu" : "lambda n: rng.uniform(0.0, 360.0, n)",
