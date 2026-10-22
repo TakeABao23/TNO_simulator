@@ -299,7 +299,18 @@ def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbo
     ref_popu = reference_pop.popu
     if n_real > 1:
         ref_popu = ref_popu.loc[ref_popu.index.repeat(n_real)]
-    simulated_pop = Population(ref_popu, init_params, det_prob, runprops=param_config)
+    # Common random numbers: if runprops sets crn_seed, every evaluation
+    # gives each object the same uniforms, so log-L is a smooth,
+    # deterministic function of theta and walkers compare parameters
+    # rather than lucky/unlucky simulation draws (see
+    # TNO_sim_lib.crn_uniforms()). The posterior is then conditioned on
+    # that one fixed set of K realizations -- larger n_realizations
+    # shrinks that effect.
+    crn_seed = param_config.get("crn_seed")
+    uniforms = (None if crn_seed is None
+                else TNO_sim_lib.crn_uniforms(crn_seed, len(ref_popu), param_config))
+    simulated_pop = Population(ref_popu, init_params, det_prob, runprops=param_config,
+                               uniforms=uniforms)
     det = simulated_pop.popu[simulated_pop.popu['detected']]
 
     # reference_pop.voxel_n_obs, if emcee_walker() precomputed it (it does,

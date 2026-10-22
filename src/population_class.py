@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import pandas as pd
+from scipy import special
 import TNO_sim_lib as TNO_sim_lib
 
 
@@ -74,11 +75,16 @@ def _gm_h0(runprops):
     return _G * density * (math.pi / 6.0) * (1329.0 / math.sqrt(albedo)) ** 3
 
 class Population():
-    def __init__(self, reference_pop, init_params=None, detection_prob = None, runprops=None):
+    def __init__(self, reference_pop, init_params=None, detection_prob = None, runprops=None,
+                 uniforms=None):
         # Initial Parameters -- init_params/self.wide are numpy structured
         # scalars (see TNO_sim_lib.draw_moon_params/draw_wide_params), not
         # class instances; runprops carries the moon/wide/orbital draw
-        # expressions population_simulator() needs per TNO.
+        # expressions population_simulator() needs per TNO. `uniforms`
+        # (TNO_sim_lib.crn_uniforms(), one array per random quantity,
+        # one entry per row of reference_pop) switches every per-object
+        # draw to common random numbers; None draws fresh ones.
+        self.uniforms = uniforms
         self.moonlike = init_params
         self.runprops = runprops
         self.gm_h0 = _gm_h0(runprops)
@@ -126,10 +132,11 @@ class Population():
         n = len(reference_pop)
         xyz = reference_pop[['x', 'y', 'z']].to_numpy(dtype=np.float64)
         Hs = reference_pop['H'].to_numpy()
+        u = self.uniforms
 
         # Same draw thresholds as before: single above ref_binary_frac,
         # moonlike between wide fb and ref_binary_frac, wide below wide fb.
-        binary_check = np.random.rand(n)
+        binary_check = np.random.rand(n) if u is None else u["binary"]
         is_single = binary_check > self.ref_binary_frac
         is_wide = ~is_single & (binary_check <= self.wide['fb'])
         binary_type = np.where(is_single, 'single',
@@ -141,13 +148,22 @@ class Population():
         # self.worb = self.morb. Only dm differs between the two types.
         binary = np.flatnonzero(~is_single)
         nb = len(binary)
-        orb = TNO_sim_lib.draw_orbit_params(self.moonlike, self.runprops, nb)
-        orbital_params = np.column_stack(
-            [orb[name] for name in self.runprops["orb_param_names"]])
+        # Under common random numbers, each binary keeps its own object's
+        # uniforms (indexed by object, not by position among binaries),
+        # so a change in fb adds/removes binaries without shifting any
+        # other binary's draws.
+        orb_names = self.runprops["orb_param_names"]
+        orb = TNO_sim_lib.draw_orbit_params(
+            self.moonlike, self.runprops, nb,
+            None if u is None else {name: u[name][binary] for name in orb_names})
+        orbital_params = np.column_stack([orb[name] for name in orb_names])
         wide_b = is_wide[binary]
-        dm_b = np.abs(np.random.normal(
-            np.where(wide_b, 0.0, self.moonlike['mdm']),
-            np.where(wide_b, self.wide['sdm'], self.moonlike['sdm'])))
+        dm_mean = np.where(wide_b, 0.0, self.moonlike['mdm'])
+        dm_std = np.where(wide_b, self.wide['sdm'], self.moonlike['sdm'])
+        if u is None:
+            dm_b = np.abs(np.random.normal(dm_mean, dm_std))
+        else:
+            dm_b = np.abs(dm_mean + dm_std * special.ndtri(u["dm"][binary]))
         sep_b, pa_b = self.compute_separation(xyz[binary], orbital_params)
 
         return self._build_popu(reference_pop['Name'].to_numpy(), None, Hs,
@@ -280,7 +296,11 @@ class Population():
         probs[candidate] = TNO_sim_lib.call_det_prob(
             detection_prob_func, seps[candidate], dms[candidate])
         detected = np.zeros(len(result), dtype=bool)
-        detected[candidate] = np.random.random(candidate.sum()) < probs[candidate]
+        # Pluto/PlutoSpread build themselves without Population.__init__,
+        # so may have no uniforms attribute at all.
+        u = getattr(self, "uniforms", None)
+        draws = np.random.random(candidate.sum()) if u is None else u["detect"][candidate]
+        detected[candidate] = draws < probs[candidate]
 
         result['detect_prob'] = probs
         result['detected'] = detected
