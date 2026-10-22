@@ -1,5 +1,7 @@
 import commentjson as json
+import json as stdjson
 import os
+import re
 import datetime
 import shutil
 import socket
@@ -23,6 +25,19 @@ _RUNPROPS_TEXT = {}
 
 RUNNING_MARKER = "RUNNING"
 CRASHED_MARKER = "CRASHED"
+
+
+def set_runprops_value(text, key, value):
+    """
+    Return `text` (a runprops.txt's contents) with `key`'s value replaced
+    by `value`, leaving every other line -- comments included -- as is.
+    Returns None if `key` isn't in `text`.
+    """
+    match = re.search(r'^\s*"%s"\s*:\s*' % re.escape(key), text, re.M)
+    if match is None:
+        return None
+    _, value_end = stdjson.JSONDecoder().raw_decode(text, match.end())
+    return text[:match.end()] + stdjson.dumps(value) + text[value_end:]
 
 
 def load_runprops(run_dir=".", filename="runprops.txt",
@@ -90,7 +105,8 @@ def load_runprops(run_dir=".", filename="runprops.txt",
                                 objname + "_" + date + "_" + str(runprops.get("run_file")))
     runprops['results_folder'] = newpath if make_results_folder else None
 
-    if isinstance(runprops.get('numpy_seed'), int):
+    seed_chosen_here = not isinstance(runprops.get('numpy_seed'), int)
+    if not seed_chosen_here:
         np.random.seed(seed=runprops.get('numpy_seed'))
     else:
         seed = x.microsecond * x.second
@@ -102,8 +118,16 @@ def load_runprops(run_dir=".", filename="runprops.txt",
 
     os.makedirs(newpath, exist_ok=True)
     with open(filepath) as f:
-        _RUNPROPS_TEXT[newpath] = f.read()
-    shutil.copy(filepath, os.path.join(newpath, 'runprops.txt'))
+        text = f.read()
+    if seed_chosen_here:
+        # Record the clock-chosen seed in the results folder's copy, so
+        # the run (e.g. its synthetic reference population) can be
+        # reproduced -- a null numpy_seed there would lose it. Later runs
+        # continuing from this one (next_runprops.txt) inherit it.
+        text = set_runprops_value(text, 'numpy_seed', runprops['numpy_seed']) or text
+    _RUNPROPS_TEXT[newpath] = text
+    with open(os.path.join(newpath, 'runprops.txt'), 'w') as f:
+        f.write(text)
 
     if kind == "results":
         chain = os.path.join(run_dir, 'chain.h5')
@@ -112,7 +136,7 @@ def load_runprops(run_dir=".", filename="runprops.txt",
             runprops['chain_file'] = os.path.join(newpath, 'chain.h5')
 
     ref_pop = runprops.get('reference_pop')
-    if ref_pop and ref_pop != "Pluto":
+    if ref_pop and ref_pop not in ("Pluto", "Pluto_spread"):
         ref_pop_path = os.path.join(run_dir, ref_pop)
         if os.path.exists(ref_pop_path):
             runprops['reference_pop_file'] = ref_pop_path
@@ -220,25 +244,22 @@ FALLBACK_RUNPROPS = {
     "wide_mdm": "np.nan",
     "wide_sdm": "np.nan",
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a": "lambda: rng.power(params['ka']) * 20000",  # scale raised from 10000 km, see runs/Pluto_test/000/runprops.txt's "a" comment
-    "e": "lambda: rng.beta(params['ae'], params['ke'])",
-    "i": "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
-    "w": "lambda: rng.uniform(0.0, 360.0)",
-    "Om": "lambda: rng.uniform(0.0, 360.0)",
-    "mu": "lambda: rng.uniform(0.0, 360.0)",
+    "a": "lambda n: rng.power(params['ka'], n) * 20000",  # scale raised from 10000 km, see runs/Pluto_test/000/runprops.txt's "a" comment
+    "e": "lambda n: rng.beta(params['ae'], params['ke'], n)",
+    "i": "lambda n: 180.0 * rng.beta(params['ai'], params['ki'], n)",
+    "w": "lambda n: rng.uniform(0.0, 360.0, n)",
+    "Om": "lambda n: rng.uniform(0.0, 360.0, n)",
+    "mu": "lambda n: rng.uniform(0.0, 360.0, n)",
     "param_bounds": {
-        "fb": [0.0, 1.0], "ka": [0.1, None], "ae": [0.5, None], "ke": [0.5, None],
-        "ai": [0.5, None], "ki": [0.5, None], "mdm": [None, None], "sdm": [0.1, None],
+        "fb": [0.0, 1.0], "ka": [0.1, 1.0e4], "ae": [0.5, 1.0e4], "ke": [0.5, 1.0e4],
+        "ai": [0.5, 1.0e4], "ki": [0.5, 1.0e4], "mdm": [None, None], "sdm": [0.1, None],
     },
 }
 
 
 def fallback_det_prob(sep, dm):
-    if sep < 0.1:
-        return False
-    elif sep < 0.5:
-        if dm > 12.5 * sep - 1.25:
-            return False
-    elif dm > 5:
-        return False
-    return True
+    """Elementwise over arrays (or scalars): True where detectable."""
+    sep = np.asarray(sep)
+    dm = np.asarray(dm)
+    return ((sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25))
+            & ((sep < 0.5) | (dm <= 5)))

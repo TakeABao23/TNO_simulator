@@ -25,17 +25,7 @@ import runprops
 TNO_SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def _set_runprops_value(text, key, value):
-    """
-    Return `text` (a runprops.txt's contents) with `key`'s value replaced
-    by `value`, leaving every other line -- comments included -- as is.
-    Returns None if `key` isn't in `text`.
-    """
-    match = re.search(r'^\s*"%s"\s*:\s*' % re.escape(key), text, re.M)
-    if match is None:
-        return None
-    _, value_end = json.JSONDecoder().raw_decode(text, match.end())
-    return text[:match.end()] + json.dumps(value) + text[value_end:]
+_set_runprops_value = runprops.set_runprops_value
 
 
 def _add_runprops_value(text, key, value, comment):
@@ -71,6 +61,19 @@ def _set_comment_above(text, key, comment_lines):
     return "\n".join(lines[:start] + block + lines[idx:])
 
 
+def _next_run_file(run_file):
+    """
+    Increment a run number: "002" -> "003", or for a "<series>.<number>"
+    run number (e.g. one series per branch/model change), only the number
+    -- "2.003" -> "2.004" -- keeping its zero-padding. None if `run_file`
+    isn't numbered like either (e.g. "debug").
+    """
+    series, _, number = run_file.rpartition(".")
+    if not number.isdigit() or (series and not series.isdigit()):
+        return None
+    return series + "." * bool(series) + str(int(number) + 1).zfill(len(number))
+
+
 def write_next_runprops(best_sample, param_names, run_config, results_folder):
     """
     Write a next_runprops.txt into `results_folder` that a later run can
@@ -85,7 +88,8 @@ def write_next_runprops(best_sample, param_names, run_config, results_folder):
       moon_<name>          `best_sample` (the maximum-posterior sample) --
                            unused while init_positions_file is set, but a
                            record of this run's best fit
-      run_file             incremented, e.g. "002" -> "003"
+      run_file             incremented, e.g. "002" -> "003" or
+                           "2.003" -> "2.004" (see _next_run_file())
       RunGoal              notes which run this continues from
     and the comment above "moon_param_names" rewritten to say where the
     moon_<name> values came from.
@@ -98,8 +102,9 @@ def write_next_runprops(best_sample, param_names, run_config, results_folder):
                     for name, value in zip(param_names, best_sample)}
 
     run_file = str(run_config.get("run_file"))
-    if run_file.isdigit():
-        replacements["run_file"] = str(int(run_file) + 1).zfill(len(run_file))
+    next_run_file = _next_run_file(run_file)
+    if next_run_file is not None:
+        replacements["run_file"] = next_run_file
     replacements["RunGoal"] = (f"Continue from run {run_file} "
                                f"({os.path.basename(results_folder)})")
 

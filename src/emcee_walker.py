@@ -128,9 +128,10 @@ def emcee_walker(run_config=None):
         if numpy_seed is not None:
             np.random.seed(numpy_seed)
 
-        if ref_pop_name == "Pluto":
-            print("Using synthetic Pluto population as reference")
-            reference_pop = Pluto(runprops=param_config, detection_prob=det_prob_fn)
+        if ref_pop_name in SYNTHETIC_REFERENCES:
+            print(f"Using synthetic {ref_pop_name} population as reference")
+            reference_pop = SYNTHETIC_REFERENCES[ref_pop_name](
+                runprops=param_config, detection_prob=det_prob_fn)
         else:
             reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
         # Precomputed once, here, before reference_pop is ever pickled into
@@ -184,8 +185,75 @@ def emcee_walker(run_config=None):
         # the sampler right after burn-in), or discard=0 for the full chain
         # including burn-in (see chain_plotter.sampler_to_full_chain()).
         sampler.burnin_steps = burn_count
+        sampler.autocorr_time = check_autocorr(sampler, burn_count, step_count,
+                                               param_config["moon_param_names"],
+                                               results_folder=results_folder)
         # TODO: verbose mode and plotting mode
         return sampler
+
+
+def check_autocorr(sampler, burn_count, step_count, param_names, n_tau=50,
+                   results_folder=None, stuck_af=0.05):
+    """
+    Estimate each parameter's integrated autocorrelation time tau on the
+    post-burn-in chain and warn if the run was shorter than n_tau * tau
+    (emcee docs' rule of thumb: ~50 tau for a reliable tau estimate and
+    posterior). tol=0 so emcee returns its estimate instead of raising
+    AutocorrError on a short chain -- which is exactly the case this
+    check exists to flag. The likelihood is stochastic (a fresh simulated
+    population every call), so treat tau as a lower bound on how long
+    walkers actually take to decorrelate.
+
+    If `results_folder` is given, also writes results_folder/autocorr.csv:
+    one row per parameter with its tau, the run's nsteps, the
+    n_tau * max(tau) steps needed, and whether nsteps met it, plus the
+    post-burn-in acceptance fraction summarized over walkers (mean, min,
+    and how many walkers fell below stuck_af) -- per-walker, not
+    per-parameter, so the same values repeat on every row. Walkers stuck
+    near zero acceptance usually mean they're sitting on a lucky
+    (stochastically high) likelihood draw, which also inflates tau.
+
+    Returns
+    -------
+    ndarray, shape (ndim,)
+        tau per parameter, in param_names order.
+    """
+    tau = sampler.get_autocorr_time(discard=burn_count, tol=0)
+    print("Autocorrelation time (steps): "
+          + ", ".join(f"{name}={t:.1f}" for name, t in zip(param_names, tau)))
+    needed = n_tau * np.nanmax(tau)
+    # Post-burn-in only (sampler.acceptance_fraction would include
+    # burn-in): a step counts as accepted if the walker moved at all.
+    chain = sampler.get_chain(discard=burn_count)
+    moved = np.any(chain[1:] != chain[:-1], axis=2)
+    af = moved.mean(axis=0)
+    n_stuck = int(np.sum(af < stuck_af))
+    print(f"Acceptance fraction: mean={af.mean():.3f}, min={af.min():.3f}, "
+          f"{n_stuck}/{len(af)} walkers below {stuck_af}")
+    if not np.isfinite(needed) or step_count < needed:
+        print(f"WARNING: not converged -- nsteps={step_count} < "
+              f"{n_tau} * max(tau) = {needed:.0f}. Increase nsteps "
+              f"(or continue from final_positions.csv) before trusting "
+              f"these posteriors.")
+    else:
+        print(f"Chain length OK: nsteps={step_count} >= "
+              f"{n_tau} * max(tau) = {needed:.0f}.")
+    if results_folder:
+        runprops.ensure_results_folder(results_folder)
+        autocorr_path = os.path.join(results_folder, "autocorr.csv")
+        pd.DataFrame({
+            "param": param_names,
+            "tau": tau,
+            "nsteps": step_count,
+            "needed_steps": needed,
+            "converged": bool(np.isfinite(needed) and step_count >= needed),
+            "acceptance_mean": af.mean(),
+            "acceptance_min": af.min(),
+            "n_stuck_walkers": n_stuck,
+            "nwalkers": len(af),
+        }).to_csv(autocorr_path, index=False)
+        print(f"Autocorrelation times written to {autocorr_path}")
+    return tau
 
     
 def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbose = False):
@@ -231,7 +299,18 @@ def get_log_likelihood(init_params, reference_pop, det_prob, param_config, verbo
     ref_popu = reference_pop.popu
     if n_real > 1:
         ref_popu = ref_popu.loc[ref_popu.index.repeat(n_real)]
-    simulated_pop = Population(ref_popu, init_params, det_prob, runprops=param_config)
+    # Common random numbers: if runprops sets crn_seed, every evaluation
+    # gives each object the same uniforms, so log-L is a smooth,
+    # deterministic function of theta and walkers compare parameters
+    # rather than lucky/unlucky simulation draws (see
+    # TNO_sim_lib.crn_uniforms()). The posterior is then conditioned on
+    # that one fixed set of K realizations -- larger n_realizations
+    # shrinks that effect.
+    crn_seed = param_config.get("crn_seed")
+    uniforms = (None if crn_seed is None
+                else TNO_sim_lib.crn_uniforms(crn_seed, len(ref_popu), param_config))
+    simulated_pop = Population(ref_popu, init_params, det_prob, runprops=param_config,
+                               uniforms=uniforms)
     det = simulated_pop.popu[simulated_pop.popu['detected']]
 
     # reference_pop.voxel_n_obs, if emcee_walker() precomputed it (it does,

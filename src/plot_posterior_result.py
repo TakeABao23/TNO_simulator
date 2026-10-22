@@ -17,21 +17,19 @@ import csv
 import os
 
 import commentjson
+import numpy as np
 
 import chain_plotter
-from population_class import Population, Pluto
+from population_class import Population, SYNTHETIC_REFERENCES
 from population_plotter import plot_sep_vs_dm_comparison, plot_pa_vs_sep_comparison
 
 
 def det_prob(sep, dm):
-    if sep < 0.1:
-        return False
-    elif sep < 0.5:
-        if dm > 12.5 * sep - 1.25:
-            return False
-    elif dm > 5:
-        return False
-    return True
+    """Elementwise over arrays (or scalars): True where detectable."""
+    sep = np.asarray(sep)
+    dm = np.asarray(dm)
+    return ((sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25))
+            & ((sep < 0.5) | (dm <= 5)))
 
 
 def load_first_and_last_sample(posteriors_path):
@@ -156,7 +154,13 @@ def plot_first_last_comparison(posteriors_path, reference_pop, run_runprops, det
 
 def main(posteriors_path):
     run_runprops = load_run_runprops(posteriors_path)
-    reference_pop = Pluto(runprops=run_runprops, detection_prob=det_prob)
+    ref_name = run_runprops.get("reference_pop", "Pluto")
+    if ref_name not in SYNTHETIC_REFERENCES:
+        raise ValueError(f"reference_pop {ref_name!r} is not a synthetic "
+                         "reference; this script only regenerates "
+                         f"{list(SYNTHETIC_REFERENCES)}")
+    reference_pop = SYNTHETIC_REFERENCES[ref_name](runprops=run_runprops,
+                                                   detection_prob=det_prob)
     print(reference_pop)
 
     results_folder = os.path.dirname(posteriors_path)

@@ -11,9 +11,9 @@
     # Run properties
     "objectname" : "Pluto_test",
     "run_file": "002",
-    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population; otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
+    "reference_pop": "Pluto",		# "Pluto" uses the built-in synthetic test population (fixed a/e/i), "Pluto_spread" the same with a/e/i drawn from the model's own distributions (true values in population_class.PlutoSpread.TRUTH, overridable with a "pluto_spread" dict); otherwise a csv filename (Name,x,y,z,H) found alongside this runprops.txt
     "det_prob_function": "det_prob",	# legacy: name of a same-named Python function in emcee_walker.py's globals(); superseded by "det_prob" below when present
-    "det_prob": "lambda sep, dm: not (sep < 0.1 or (sep < 0.5 and dm > 12.5 * sep - 1.25) or (sep >= 0.5 and dm > 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
+    "det_prob": "lambda sep, dm: (sep >= 0.1) & ((sep >= 0.5) | (dm <= 12.5 * sep - 1.25)) & ((sep < 0.5) | (dm <= 5))",	# default detection-probability function (same logic as runprops.fallback_det_prob), runprops-driven like the moon/wide/orb draw expressions
 
     "nwalkers" : 100,			# number of walkers in emcee ensemble
     "ndim" : 8,				# length of moon_param_names; number of free population-level parameters
@@ -21,7 +21,7 @@
     "nsteps" : 5000,			# number of steps for sampling after burn in
     "numpy_seed": null,			# integer for reproducible draws, or null for a time-based seed
     # Added by run 001's write_next_runprops()
-    "init_positions_file": "../../../results/Pluto_test/Pluto_test_2026-10-08_13.50.33_001/final_positions.csv",
+    "init_positions_file": "../../../results/Pluto_test/pre-vectorization/Pluto_test_2026-10-08_13.50.33_001/final_positions.csv",
 
     # Primary mass from H: sphere with this geometric albedo and bulk
     # density, D [km] = 1329 / sqrt(albedo) * 10^(-H/5).
@@ -45,14 +45,18 @@
 
     # Uniform-prior bounds per moon parameter, used by log_prior to reject
     # e.g. a negative ka/ae/ke/ai/ki before it crashes rng.power/rng.beta.
-    # null = unbounded in that direction.
+    # null = unbounded in that direction. ka/ae/ke/ai/ki are capped at 1e4:
+    # past a few thousand the distributions are narrower than the data can
+    # resolve (a zero-spread reference like Pluto's otherwise lets walkers
+    # drift to ~1e13). Posteriors piling up at the cap mean only a lower
+    # limit is constrained, i.e. consistent with zero spread.
     "param_bounds": {
         "fb":  [0.0, 1.0],
-        "ka":  [0.1, null],
-        "ae":  [0.5, null],
-        "ke":  [0.5, null],
-        "ai":  [0.5, null],
-        "ki":  [0.5, null],
+        "ka":  [0.1, 1.0e4],
+        "ae":  [0.5, 1.0e4],
+        "ke":  [0.5, 1.0e4],
+        "ai":  [0.5, 1.0e4],
+        "ki":  [0.5, 1.0e4],
         "mdm": [null, null],
         "sdm": [0.1, null]
     },
@@ -69,16 +73,17 @@
     "wide_mdm" : "np.nan",
     "wide_sdm" : "np.nan",
 
-    # Orbital-element distributions, one zero-arg lambda per name, eval'd
+    # Orbital-element distributions, one lambda per name taking n (the
+    # number of draws) and returning n values, eval'd
     # with `rng` and `params` (the current moon-level hyperparameter
     # structured record) in scope.
     "orb_param_names": ["a", "e", "i", "w", "Om", "mu"],
-    "a" : "lambda: rng.power(params['ka']) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
-    "e" : "lambda: rng.beta(params['ae'], params['ke'])",
-    "i" : "lambda: 180.0 * rng.beta(params['ai'], params['ki'])",
-    "w" : "lambda: rng.uniform(0.0, 360.0)",
-    "Om" : "lambda: rng.uniform(0.0, 360.0)",
-    "mu" : "lambda: rng.uniform(0.0, 360.0)",
+    "a" : "lambda n: rng.power(params['ka'], n) * 20000",	# scale raised from 10000 -- that capped the model's max reachable semi-major axis at 10000 km, well below the reference Pluto-Charon system's real 19591 km, so the model could never reach the observed separation range no matter how ka/etc. were fit
+    "e" : "lambda n: rng.beta(params['ae'], params['ke'], n)",
+    "i" : "lambda n: 180.0 * rng.beta(params['ai'], params['ki'], n)",
+    "w" : "lambda n: rng.uniform(0.0, 360.0, n)",
+    "Om" : "lambda n: rng.uniform(0.0, 360.0, n)",
+    "mu" : "lambda n: rng.uniform(0.0, 360.0, n)",
 
     # These values are used by the code to manage runs and should not be changed by hand.
     "chain_file": null,			# set by runprops.py when resuming from results/.../chain.h5

@@ -23,6 +23,7 @@ import os
 import numpy as np
 import pandas as pd
 from numpy.lib import recfunctions as rfn
+from scipy import special
 
 # Process-wide Generator, deliberately not reseeded by runprops' numpy_seed
 # (each process/MPI rank gets its own instance from OS entropy at import
@@ -32,6 +33,43 @@ from numpy.lib import recfunctions as rfn
 # args would re-send the same unadvanced snapshot to a worker on every
 # call, making every "random" draw on that worker identical.
 rng = np.random.default_rng()
+
+
+# Per-object random quantities besides the orbital elements that
+# Population draws from a uniform under common random numbers (see
+# crn_uniforms()).
+CRN_BASE_NAMES = ("binary", "dm", "detect")
+
+
+@functools.lru_cache(maxsize=8)
+def _crn_uniforms_cached(seed, n, names):
+    u = np.random.default_rng(seed).random((len(names), n))
+    u.setflags(write=False)
+    return dict(zip(names, u))
+
+
+def crn_uniforms(seed, n, runprops):
+    """
+    Common random numbers: one fixed uniform per object per random
+    quantity -- CRN_BASE_NAMES plus every orb_param_names entry --
+    generated from `seed`, so every likelihood evaluation (on every MPI
+    rank) sees the same uniforms for the same object.
+
+    Population turns these into draws through inverse CDFs (u < fb for
+    binarity, ndtri for dm, the runprops `lambda u: ...` orbital
+    expressions), so changing theta moves each simulated binary smoothly
+    instead of reshuffling which random numbers land on which object --
+    reseeding the samplers themselves doesn't do that, since how many
+    numbers rng.beta consumes depends on its parameters, and how many
+    binaries there are depends on fb, shifting every later draw.
+
+    Cached per (seed, n, names): the same arrays (read-only) are reused
+    across every evaluation in a run instead of being regenerated.
+
+    Returns a dict name -> float64 array of shape (n,).
+    """
+    names = CRN_BASE_NAMES + tuple(runprops["orb_param_names"])
+    return _crn_uniforms_cached(seed, n, names)
 
 
 def _dtype(names):
@@ -83,27 +121,79 @@ def draw_wide_params(runprops):
     return _draw_record(names, exprs)
 
 
-def draw_orbit_params(moon_params, runprops):
+def _draw_n(fn, n, u=None, name=None):
     """
-    Draw one fresh set of orbital elements (a, e, i, w, Om, mu) for a single
-    TNO, from runprops' orbital-element lambda expressions -- each is
-    eval'd with `params` bound to `moon_params` (the walker's current
-    moon-level hyperparameters, e.g. so `a`'s expression can reference
-    params['ka']), then immediately called to draw one sample.
+    Call a runprops orbital-element lambda for `n` draws at once.
 
-    Returns a plain dict (name -> value), not a numpy structured scalar --
-    unlike moon_params/wide_params (drawn once per Population, then
-    round-tripped through moon_params_to_array/moon_params_from_array as
-    emcee's flat theta, where the structured-array dtype earns its keep),
-    this is drawn once per binary and immediately unpacked by its only
-    caller (population_class.py's `[orb[name] for name in orb_names]`) --
-    plain dict field access works identically there, without paying
-    numpy's structured-dtype construction overhead (isinstance/dtype
-    validation) on every single draw.
+    A lambda whose argument is named `u` (e.g. "lambda u: 360.0 * u") is
+    an inverse CDF: it's called with n uniforms -- `u` if given (common
+    random numbers, see crn_uniforms()), else fresh ones from `rng` --
+    and must return n values. Any other one-argument lambda (e.g.
+    "lambda n: rng.uniform(0.0, 360.0, n)") is called once with n and
+    must return n values (or a scalar, broadcast to n). A legacy
+    zero-argument lambda (e.g. "lambda: rng.uniform(0.0, 360.0)", as in
+    older runs' runprops.txt) is still supported, but is called n times
+    in a Python loop -- correct, just not vectorized.
+
+    Raises ValueError if `u` is given (common random numbers are on) but
+    `fn` draws from `rng` itself instead of taking `u`: its draws would
+    be fresh noise on every evaluation, silently undoing CRN.
+    """
+    code = fn.__code__
+    if code.co_argcount == 1 and code.co_varnames[0] == "u":
+        out = fn(rng.random(n) if u is None else u)
+    else:
+        if u is not None and "rng" in code.co_names:
+            raise ValueError(
+                f"crn_seed is set, but orbital expression {name!r} draws from "
+                f"rng instead of taking uniforms -- rewrite it as an inverse "
+                f"CDF, e.g. \"lambda u: ...\" (see crn_uniforms()).")
+        if code.co_argcount == 0:
+            return np.fromiter((fn() for _ in range(n)), dtype=np.float64, count=n)
+        out = fn(n)
+    out = np.asarray(out, dtype=np.float64)
+    return np.broadcast_to(out, (n,)) if out.ndim == 0 else out
+
+
+def draw_orbit_params(moon_params, runprops, n, uniforms=None):
+    """
+    Draw `n` independent sets of orbital elements (a, e, i, w, Om, mu), one
+    per binary, from runprops' orbital-element lambda expressions -- each
+    is eval'd with `params` bound to `moon_params` (the walker's current
+    moon-level hyperparameters, e.g. so `a`'s expression can reference
+    params['ka']) and `special` (scipy.special, for inverse CDFs like
+    special.betaincinv), then called once for all n draws (see
+    _draw_n()). `uniforms`, if given, maps each name to its n common
+    random numbers (see crn_uniforms()).
+
+    Returns a dict name -> float64 array of shape (n,).
     """
     names = runprops["orb_param_names"]
-    namespace = {"rng": rng, "np": np, "params": moon_params}
-    return {name: eval(_compile_expr(runprops[name]), namespace)() for name in names}
+    namespace = {"rng": rng, "np": np, "special": special, "params": moon_params}
+    return {name: _draw_n(eval(_compile_expr(runprops[name]), namespace), n,
+                          None if uniforms is None else uniforms[name], name)
+            for name in names}
+
+
+def call_det_prob(fn, sep, dm):
+    """
+    Evaluate a det_prob function on arrays of sep/dm. Tries a single
+    vectorized call first; a scalar-only function (e.g. one using
+    `if`/`and`/`not`, which raise on arrays) falls back to a per-element
+    loop.
+    """
+    sep = np.asarray(sep, dtype=np.float64)
+    dm = np.asarray(dm, dtype=np.float64)
+    try:
+        out = np.asarray(fn(sep, dm), dtype=np.float64)
+        if out.ndim == 0:
+            return np.full(sep.shape, out)
+        if out.shape == sep.shape:
+            return out
+    except (ValueError, TypeError):
+        pass
+    return np.fromiter((fn(s, d) for s, d in zip(sep, dm)),
+                       dtype=np.float64, count=sep.size)
 
 
 class _RunpropsDetProb:
@@ -117,13 +207,16 @@ class _RunpropsDetProb:
     source expression (via __getstate__/__setstate__) and re-evals it once
     on the receiving end (worker unpickling, or this process at
     construction), not on every call -- __call__ itself never re-evals.
+
+    Called with arrays of sep/dm (see Population.apply_detection()); a
+    scalar-only expression still works, via call_det_prob()'s loop.
     """
     def __init__(self, expr):
         self.expr = expr
         self._fn = eval(_compile_expr(expr), {"rng": rng, "np": np})
 
     def __call__(self, sep, dm):
-        return self._fn(sep, dm)
+        return call_det_prob(self._fn, sep, dm)
 
     def __getstate__(self):
         return self.expr
@@ -140,8 +233,9 @@ class _RunpropsDetProb:
 def load_det_prob(runprops):
     """
     Build the detection-probability callable from runprops' `det_prob`
-    eval'able lambda expression string, (sep, dm) -> bool -- same
-    runprops-driven pattern as the orb_param_names lambdas, so a run's own
+    eval'able lambda expression string, (sep, dm) -> bool or probability,
+    elementwise over arrays -- same runprops-driven pattern as the
+    orb_param_names lambdas, so a run's own
     runprops.txt is a complete, reproducible record of its detection
     function too, not just its moon/wide/orbital parameter distributions.
 
