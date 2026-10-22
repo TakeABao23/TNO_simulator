@@ -19,3 +19,6 @@ jupyter
 ipykernel
 nbclient
 nbformat
+
+# Building the real-data reference catalog (fetch_tnbs_catalog.py) only
+astroquery
