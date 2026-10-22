@@ -133,7 +133,12 @@ def emcee_walker(run_config=None):
             reference_pop = SYNTHETIC_REFERENCES[ref_pop_name](
                 runprops=param_config, detection_prob=det_prob_fn)
         else:
-            reference_pop = ObservedPopulation(pd.read_csv(ref_pop_name))
+            # runprops resolves the csv against the run directory
+            # (reference_pop_file); a bare ref_pop_name would be read
+            # relative to the cwd instead.
+            ref_pop_path = (run_config or {}).get("reference_pop_file",
+                                                  ref_pop_name)
+            reference_pop = ObservedPopulation(pd.read_csv(ref_pop_path))
         # Precomputed once, here, before reference_pop is ever pickled into
         # a sampler.args task: reference_pop.popu never changes across the
         # whole run, but get_log_likelihood() calls this on every single
