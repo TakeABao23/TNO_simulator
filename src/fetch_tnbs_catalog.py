@@ -21,7 +21,10 @@ on stdout.
 Conventions:
   * Delta-x is Delta-RA cos(Dec) (east), Delta-y is Delta-Dec (north), in
     arcsec, secondary minus primary.
-  * sep = hypot(dx, dy) [arcsec].
+  * sep = hypot(dx, dy) [arcsec]; sep_km is the same projected
+    separation in km at the HORIZONS geocentric distance. --max-sep-km
+    keeps only binaries at most that wide, e.g. 20000 to match the
+    model's largest semi-major axis.
   * pa matches Population.compute_separation(): degrees, North through
     East, with North the *ecliptic* pole projected onto the sky -- so the
     equatorial (dx, dy) offset is rotated into that frame. pa_eq_ne is
@@ -31,8 +34,8 @@ Conventions:
     H = H_combined + 2.5 log10(1 + 10^(-0.4 dm)).
 
 Usage (needs astroquery, which the simulator itself does not):
-    python fetch_tnbs_catalog.py [--all-instruments] [--out OUT.csv]
-                                 [--cache tnbs_cache]
+    python fetch_tnbs_catalog.py [--all-instruments] [--max-sep-km KM]
+                                 [--out OUT.csv] [--cache tnbs_cache]
 """
 import argparse
 import html
@@ -185,16 +188,23 @@ def main():
                         action="store_false",
                         help="use every instrument's astrometry, not just "
                              "HST's (default: HST only)")
+    parser.add_argument("--max-sep-km", type=float, default=None,
+                        help="keep only close binaries, whose projected "
+                             "separation sep_km is at most this (e.g. "
+                             "20000, the model's largest semi-major "
+                             "axis); default: no cut")
     parser.add_argument("--out", default=None,
                         help="output csv (default: runs/TNBS/"
-                             "tnbs_first_detections_{hst,all}.csv)")
+                             "tnbs_first_detections_{hst,all}[_close]"
+                             ".csv)")
     parser.add_argument("--cache", default="tnbs_cache",
                         help="directory for downloaded HTML pages")
     args = parser.parse_args()
     if args.out is None:
         args.out = os.path.join(
             "runs", "TNBS", "tnbs_first_detections_"
-            + ("hst" if args.hst_only else "all") + ".csv")
+            + ("hst" if args.hst_only else "all")
+            + ("" if args.max_sep_km is None else "_close") + ".csv")
     os.makedirs(args.cache, exist_ok=True)
 
     rows, skipped = [], []
@@ -218,6 +228,8 @@ def main():
             "x": xyz[0], "y": xyz[1], "z": xyz[2],
             "H": h_comb + 2.5 * np.log10(1.0 + 10.0 ** (-0.4 * dm)),
             "sep": np.hypot(dx, dy),
+            "sep_km": np.radians(np.hypot(dx, dy) / 3600.0)
+            * np.linalg.norm(xyz),
             "pa": ecliptic_pa(los, dx, dy),
             "dm": dm,
             "H_combined": h_comb,
@@ -236,9 +248,18 @@ def main():
         print(f"{name}: sep {rows[-1]['sep']:.3f}\" dm {dm:.2f} "
               f"(HORIZONS vs page RA/Dec {offset:.1f}\")")
 
+    catalog = pd.DataFrame(rows)
+    if args.max_sep_km is not None:
+        wide = catalog["sep_km"] > args.max_sep_km
+        print(f"\nDropped {wide.sum()} wide binaries "
+              f"(sep_km > {args.max_sep_km:g}):")
+        for _, row in catalog[wide].iterrows():
+            print(f"  {row['Name']} ({row['sep_km']:.0f} km)")
+        catalog = catalog[~wide]
+
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    pd.DataFrame(rows).to_csv(args.out, index=False)
-    print(f"\nWrote {len(rows)} systems to {args.out}")
+    catalog.to_csv(args.out, index=False)
+    print(f"\nWrote {len(catalog)} systems to {args.out}")
     print(f"Skipped {len(skipped)} with no "
           f"{'HST ' if args.hst_only else ''}astrometry:")
     for name, status in skipped:
